@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mandopop Settings</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'Monaco', 'Consolas', monospace;
+      width: 280px;
+      padding: 16px;
+      background: #0d0d0d;
+      color: #e8e8e8;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .header img {
+      width: 32px;
+      height: 32px;
+    }
+
+    .header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #00ff88;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.4);
+    }
+
+    .setting {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .setting:last-child {
+      border-bottom: none;
+    }
+
+    .setting-label {
+      font-size: 13px;
+      color: #e8e8e8;
+    }
+
+    .setting-description {
+      font-size: 11px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    /* Toggle Switch */
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      transition: 0.2s;
+      border-radius: 24px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 2px;
+      bottom: 2px;
+      background-color: #666;
+      transition: 0.2s;
+      border-radius: 50%;
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background-color: #0a3d2a;
+      border-color: #00ff88;
+      box-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+    }
+
+    .toggle input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+      background-color: #00ff88;
+      box-shadow: 0 0 6px rgba(0, 255, 136, 0.5);
+    }
+
+    /* Font Size Slider */
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 80px;
+      height: 4px;
+      background: #1a1a1a;
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      background: #00ff88;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 6px rgba(0, 255, 136, 0.5);
+    }
+
+    .slider-value {
+      font-size: 11px;
+      color: #00d4ff;
+      min-width: 32px;
+      text-align: right;
+      text-shadow: 0 0 6px rgba(0, 212, 255, 0.3);
+    }
+
+    .preview {
+      margin-top: 16px;
+      padding: 12px;
+      background: #0a0a0a;
+      border: 1px solid #1a1a1a;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .preview-chinese {
+      font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+      font-weight: 600;
+      color: #00ff88;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.4);
+      margin-bottom: 4px;
+    }
+
+    .preview-pinyin {
+      font-size: 14px;
+      color: #00d4ff;
+      font-style: italic;
+      text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="icons/icon48.png" alt="Mandopop">
+    <h1>Mandopop</h1>
+  </div>
+
+  <div class="setting">
+    <div>
+      <div class="setting-label">Enable Extension</div>
+      <div class="setting-description">Show translations on select</div>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="enabled">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+
+  <div class="setting">
+    <div>
+      <div class="setting-label">Audio Button</div>
+      <div class="setting-description">Show pronunciation button</div>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="showAudio">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+
+  <div class="setting">
+    <div>
+      <div class="setting-label">Font Size</div>
+      <div class="setting-description">Chinese character size</div>
+    </div>
+    <div class="slider-container">
+      <input type="range" class="slider" id="fontSize" min="16" max="36" step="2">
+      <span class="slider-value" id="fontSizeValue">24px</span>
+    </div>
+  </div>
+
+  <div class="preview">
+    <div class="preview-chinese" id="previewChinese">你好</div>
+    <div class="preview-pinyin">nǐ hǎo</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

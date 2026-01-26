@@ -1,0 +1,132 @@
+/* Mandopop Translation Popup Styles - Hacker Neon Dark Mode */
+
+#mandopop-popup {
+  all: initial;
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  font-family: 'SF Mono', 'Fira Code', 'Monaco', 'Consolas', monospace !important;
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+  color: #e8e8e8 !important;
+  background: #0d0d0d !important;
+  border: 1px solid #1a1a1a !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 1px rgba(0, 255, 136, 0.3) !important;
+  padding: 10px 14px !important;
+  max-width: 360px !important;
+  min-width: 160px !important;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease !important;
+  pointer-events: auto !important;
+}
+
+#mandopop-popup.mandopop-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+#mandopop-popup * {
+  all: unset;
+  display: block;
+  box-sizing: border-box !important;
+}
+
+.mandopop-entry {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 8px 0 !important;
+  border-bottom: 1px solid #1a1a1a !important;
+}
+
+.mandopop-entry:last-of-type {
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}
+
+.mandopop-entry:first-of-type {
+  padding-top: 0 !important;
+}
+
+.mandopop-entry-content {
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+.mandopop-main-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: baseline !important;
+  gap: 10px !important;
+  flex-wrap: wrap !important;
+}
+
+.mandopop-chinese {
+  font-size: var(--mandopop-font-size, 24px) !important;
+  font-weight: 600 !important;
+  color: #00ff88 !important;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif !important;
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.4) !important;
+}
+
+.mandopop-pinyin {
+  font-size: 14px !important;
+  color: #00d4ff !important;
+  font-style: italic !important;
+  text-shadow: 0 0 8px rgba(0, 212, 255, 0.3) !important;
+}
+
+.mandopop-definitions {
+  font-size: 11px !important;
+  color: #666666 !important;
+  margin-top: 4px !important;
+}
+
+.mandopop-no-result {
+  color: #ff0080 !important;
+  font-style: italic !important;
+  padding: 4px 0 !important;
+  text-shadow: 0 0 8px rgba(255, 0, 128, 0.4) !important;
+}
+
+.mandopop-audio-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 50% !important;
+  background: #1a1a1a !important;
+  border: 1px solid #2a2a2a !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  flex-shrink: 0 !important;
+}
+
+.mandopop-audio-btn:hover {
+  background: #252525 !important;
+  border-color: #00ff88 !important;
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.3) !important;
+}
+
+.mandopop-audio-btn:active {
+  background: #2a2a2a !important;
+}
+
+.mandopop-audio-btn svg {
+  width: 14px !important;
+  height: 14px !important;
+  fill: #555555 !important;
+  transition: fill 0.15s ease !important;
+}
+
+.mandopop-audio-btn:hover svg {
+  fill: #00ff88 !important;
+}
+
+.mandopop-audio-btn.mandopop-playing svg {
+  fill: #00d4ff !important;
+  filter: drop-shadow(0 0 4px rgba(0, 212, 255, 0.6)) !important;
+}
