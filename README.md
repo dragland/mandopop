@@ -3,8 +3,8 @@
 Chrome extension for learning Mandarin vocabulary while browsing. Select any English word to see Chinese characters with pinyin and pronunciation.
 
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/placeholder1.png" width="45%" alt="Translation popup" />
-  <img src="https://github.com/user-attachments/assets/placeholder2.png" width="45%" alt="Settings panel" />
+  <img src="docs/example.png" width="45%" alt="Translation popup" />
+  <img src="docs/settings.png" width="45%" alt="Settings panel" />
 </div>
 
 ## Features
@@ -58,6 +58,10 @@ mandopop/
 ```
 
 ## Development
+
+```bash
+npm install && npm test && npm run lint:fix
+```
 
 **Regenerate dictionary** (if CC-CEDICT updates):
 ```bash
