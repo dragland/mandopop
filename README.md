@@ -2,10 +2,9 @@
 
 Chrome extension for learning Mandarin vocabulary while browsing. Select any English word to see Chinese characters with pinyin and pronunciation.
 
-<div align="center">
   <img src="docs/example.png" width="45%" alt="Translation popup" />
+  
   <img src="docs/settings.png" width="45%" alt="Settings panel" />
-</div>
 
 ## Features
 
