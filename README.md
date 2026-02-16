@@ -39,20 +39,23 @@ Click the extension icon to configure:
 ## Tech Stack
 
 - **Platform**: Chrome Extension (Manifest V3)
-- **Dictionary**: CC-CEDICT (bundled, ~17MB)
+- **Dictionary**: CC-CEDICT (bundled, ~17MB, cached in IndexedDB for fast service worker restarts)
 - **Audio**: Web Speech API (prefers Meijia voice for Taiwan Mandarin)
-- **Storage**: chrome.storage.sync for settings
+- **Storage**: chrome.storage.sync for settings, IndexedDB for dictionary cache
 
 ## Project Structure
 
 ```
 mandopop/
 ├── manifest.json      # Extension config (MV3)
-├── background.js      # Service worker - dictionary & lookups
-├── content.js         # Selection detection & popup rendering
+├── background.js      # Service worker (ES module) - dictionary cache & lookups
+├── content.js         # Selection detection & popup rendering (IIFE)
+├── lib/
+│   ├── normalize.js   # Word normalization & lookup logic (ESM)
+│   └── pinyin.js      # Pinyin conversion & word extraction (ESM)
 ├── styles.css         # Neon hacker theme
 ├── popup.html/js      # Settings panel
-├── cedict.json        # CC-CEDICT dictionary (preprocessed)
+├── cedict.json        # CC-CEDICT dictionary (preprocessed, ~17MB)
 └── icons/             # Extension icons (學 character)
 ```
 
