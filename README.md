@@ -1,9 +1,8 @@
 # 學 Mandopop
 
-Chrome extension for learning Mandarin vocabulary while browsing. Select any English word to see Chinese characters with pinyin and pronunciation.
+Chrome extension for learning Mandarin vocabulary while browsing. Select any English word/phrase for popup with Chinese characters, pinyin & pronunciation.
 
   <img src="docs/example.png" width="45%" alt="Translation popup" />
-  
   <img src="docs/settings.png" width="45%" alt="Settings panel" />
 
 ## Features
