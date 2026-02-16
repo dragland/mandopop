@@ -73,7 +73,7 @@ gunzip cedict.gz
 mv cedict cedict_ts.u8
 
 # Preprocess
-node scripts/preprocess_cedict.js
+node scripts/preprocess_cedict.cjs
 
 # Cleanup
 rm cedict_ts.u8

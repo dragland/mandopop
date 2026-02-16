@@ -89,6 +89,29 @@ function extractEnglishWords(definition) {
   return words.filter(w => w.length > 1 && !stopWords.has(w));
 }
 
+// Extract multi-word phrase keys from a definition
+// NOTE: Keep in sync with lib/pinyin.js
+function extractPhrases(definition) {
+  const cleaned = definition
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\{[^}]*\}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  // Only keep phrases made of plain letters, hyphens, apostrophes, and spaces
+  if (!/^[a-z][-'a-z ]*[a-z]$/.test(cleaned)) return [];
+
+  const words = cleaned.split(' ');
+  if (words.length < 2 || words.length > 3) return [];
+
+  // Skip definitional patterns (e.g. "to steal", "a basket")
+  if (stopWords.has(words[0]) || stopWords.has(words[words.length - 1])) return [];
+
+  return [cleaned];
+}
+
 // Main processing
 function processDict() {
   const inputPath = path.join(__dirname, '..', 'cedict_ts.u8');
@@ -131,6 +154,18 @@ function processDict() {
         const exists = dict[word].some(e => e.s === entry.s && e.p === entry.p);
         if (!exists) {
           dict[word].push(entry);
+        }
+      }
+
+      // Index by multi-word phrases
+      const phrases = extractPhrases(def);
+      for (const phrase of phrases) {
+        if (!dict[phrase]) {
+          dict[phrase] = [];
+        }
+        const exists = dict[phrase].some(e => e.s === entry.s && e.p === entry.p);
+        if (!exists) {
+          dict[phrase].push(entry);
         }
       }
     }
@@ -177,14 +212,17 @@ function processDict() {
   // Write output
   fs.writeFileSync(outputPath, JSON.stringify(dict));
 
+  const allKeys = Object.keys(dict);
+  const phraseKeys = allKeys.filter(k => k.includes(' ')).length;
   const stats = {
     entries: entryCount,
-    words: Object.keys(dict).length,
+    words: allKeys.length,
+    phrases: phraseKeys,
     sizeKB: Math.round(fs.statSync(outputPath).size / 1024)
   };
 
   console.log(`Processed ${stats.entries} dictionary entries`);
-  console.log(`Created index with ${stats.words} English words`);
+  console.log(`Created index with ${stats.words} keys (${stats.phrases} phrase keys)`);
   console.log(`Output file size: ${stats.sizeKB} KB`);
 }
 

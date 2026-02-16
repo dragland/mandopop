@@ -18,5 +18,5 @@
 
 - `background.js` (ESM, `"type": "module"` in manifest) → imports `lib/normalize.js`
 - `content.js` (IIFE) → can't import from `lib/` without a build step
-- `scripts/preprocess_cedict.js` (CJS) → duplicates pinyin logic from `lib/pinyin.js` (CJS can't import ESM)
+- `scripts/preprocess_cedict.cjs` (CJS) → duplicates pinyin logic from `lib/pinyin.js` (CJS can't import ESM)
 - `tests/` → imports from `lib/`

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mandopop - Mandarin Vocabulary",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Learn Mandarin vocabulary while browsing. Select English text to see Chinese translations with pinyin and pronunciation.",
   "permissions": [
     "activeTab",

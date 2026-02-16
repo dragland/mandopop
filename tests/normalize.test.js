@@ -176,6 +176,39 @@ describe('normalizeWord', () => {
       expect(result[0]).toBe('fly');
     });
   });
+
+  describe('multi-word phrases', () => {
+    it('returns phrase as first variation', () => {
+      const result = normalizeWord('ice cream');
+      expect(result[0]).toBe('ice cream');
+    });
+
+    it('normalizes individual words in phrase (ice creams -> ice cream)', () => {
+      const result = normalizeWord('ice creams');
+      expect(result).toContain('ice cream');
+    });
+
+    it('normalizes inflected words (running waters -> running water, run water)', () => {
+      const result = normalizeWord('running waters');
+      expect(result).toContain('running water');
+      expect(result).toContain('run water');
+    });
+
+    it('returns null for single word (no spaces)', () => {
+      // single words go through normal path, not null
+      const result = normalizeWord('cat');
+      expect(result).not.toBeNull();
+    });
+
+    it('returns null for phrases over 3 words', () => {
+      expect(normalizeWord('one two three four')).toBeNull();
+    });
+
+    it('caps variations at 20', () => {
+      const result = normalizeWord('running waters');
+      expect(result.length).toBeLessThanOrEqual(20);
+    });
+  });
 });
 
 describe('lookup', () => {
@@ -185,6 +218,7 @@ describe('lookup', () => {
     'run': [{ s: '跑', p: 'pao', d: ['to run'] }],
     'big': [{ s: '大', p: 'da', d: ['big'] }],
     'quick': [{ s: '快', p: 'kuai', d: ['quick'] }],
+    'ice cream': [{ s: '冰淇淋', p: 'bīng qí lín', d: ['ice cream'] }],
   };
 
   it('returns null when dictionary is null', () => {
@@ -229,5 +263,15 @@ describe('lookup', () => {
   it('returns null for empty input', () => {
     const result = lookup('', mockDictionary);
     expect(result).toBeNull();
+  });
+
+  it('finds phrase by exact match', () => {
+    const result = lookup('ice cream', mockDictionary);
+    expect(result).toEqual(mockDictionary['ice cream']);
+  });
+
+  it('finds phrase from inflected form (ice creams -> ice cream)', () => {
+    const result = lookup('ice creams', mockDictionary);
+    expect(result).toEqual(mockDictionary['ice cream']);
   });
 });

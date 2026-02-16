@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { numberedToToneMarks, extractEnglishWords } from '../lib/pinyin.js';
+import { numberedToToneMarks, extractEnglishWords, extractPhrases } from '../lib/pinyin.js';
 
 describe('numberedToToneMarks', () => {
   describe('single syllables', () => {
@@ -228,5 +228,58 @@ describe('extractEnglishWords', () => {
       expect(result).toContain('hurricane');
       expect(result).not.toContain('5');
     });
+  });
+});
+
+describe('extractPhrases', () => {
+  it('extracts a clean 2-word phrase', () => {
+    expect(extractPhrases('ice cream')).toEqual(['ice cream']);
+  });
+
+  it('extracts a 3-word phrase', () => {
+    expect(extractPhrases('green chili pepper')).toEqual(['green chili pepper']);
+  });
+
+  it('strips parenthetical annotations', () => {
+    expect(extractPhrases('ice cream (loanword)')).toEqual(['ice cream']);
+  });
+
+  it('strips square bracket annotations', () => {
+    expect(extractPhrases('ice cream [food]')).toEqual(['ice cream']);
+  });
+
+  it('strips curly brace annotations', () => {
+    expect(extractPhrases('ice cream {noun}')).toEqual(['ice cream']);
+  });
+
+  it('returns [] for single words', () => {
+    expect(extractPhrases('cat')).toEqual([]);
+  });
+
+  it('returns [] for phrases over 3 words', () => {
+    expect(extractPhrases('large department store chain')).toEqual([]);
+  });
+
+  it('returns [] for non-ASCII content', () => {
+    expect(extractPhrases('CL:個|个[ge4]')).toEqual([]);
+  });
+
+  it('returns [] for phrases starting with a stop word', () => {
+    expect(extractPhrases('to steal')).toEqual([]);
+    expect(extractPhrases('a basket')).toEqual([]);
+    expect(extractPhrases('the end')).toEqual([]);
+  });
+
+  it('returns [] for phrases ending with a stop word', () => {
+    expect(extractPhrases('mixed in')).toEqual([]);
+    expect(extractPhrases('jealous of')).toEqual([]);
+  });
+
+  it('lowercases the result', () => {
+    expect(extractPhrases('Ice Cream')).toEqual(['ice cream']);
+  });
+
+  it('collapses internal whitespace', () => {
+    expect(extractPhrases('ice   cream')).toEqual(['ice cream']);
   });
 });
