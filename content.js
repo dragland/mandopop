@@ -12,6 +12,25 @@
   const MAX_DISPLAY_ENTRIES = 3;
   const SPEECH_RATE = 0.85;
 
+  // No-result phrases (Traditional Chinese, Taiwan Mandarin)
+  const NO_RESULT_PHRASES = [
+    { s: '看不懂', p: 'kàn bù dǒng', d: ["can't understand what I'm seeing"] },
+    { s: '沒聽過', p: 'méi tīngguò', d: ["never heard of it"] },
+    { s: '問倒我了', p: 'wèn dǎo wǒ le', d: ["you've stumped me"] },
+    { s: '我的中文還要加油', p: 'wǒ de Zhōngwén hái yào jiāyóu', d: ["my Chinese still needs work"] },
+    { s: '字典也沒辦法', p: 'zìdiǎn yě méi bànfǎ', d: ["even the dictionary can't help"] },
+    { s: '這個嘛……', p: 'zhège ma...', d: ["well, this..."] },
+    { s: '蛤？', p: 'há?', d: ["huh?"] },
+    { s: '天啊，這什麼？', p: 'tiān a, zhè shénme?', d: ["heavens, what is this?"] },
+    { s: '沒有頭緒', p: 'méiyǒu tóuxù', d: ["no clue"] },
+    { s: '我想一下', p: 'wǒ xiǎng yíxià', d: ["let me think a moment"] },
+    { s: '不知道怎麼說', p: 'bù zhīdào zěnme shuō', d: ["don't know how to say it"] },
+    { s: '這個我真的不會', p: 'zhège wǒ zhēnde bú huì', d: ["this one I really don't know"] },
+    { s: '學到老，還是不會', p: 'xué dào lǎo, háishì bú huì', d: ["study till old age, still won't know"] },
+    { s: '找不到，但沒關係', p: 'zhǎo bú dào, dàn méi guānxì', d: ["can't find it, but no worries"] },
+    { s: '我也不知道耶', p: 'wǒ yě bù zhīdào yē', d: ["I don't know either"] },
+  ];
+
   // State
   let popup = null;
   let selectionTimeout = null;
@@ -147,10 +166,10 @@
         popup.appendChild(createEntryElement(entry, hasMultipleEntries));
       }
     } else {
-      const noResult = document.createElement('div');
-      noResult.className = 'mandopop-no-result';
-      noResult.textContent = 'No translation found';
-      popup.appendChild(noResult);
+      const phrase = NO_RESULT_PHRASES[Math.floor(Math.random() * NO_RESULT_PHRASES.length)];
+      const entry = createEntryElement(phrase, true);
+      entry.classList.add('mandopop-no-result-entry');
+      popup.appendChild(entry);
     }
 
     positionPopup(popup, x, y);
@@ -283,15 +302,35 @@
       utterance.voice = chineseVoice;
     }
 
+    // Estimate duration: ~300ms per character for Chinese speech
+    const estimatedMs = Math.max(text.length * 300 / SPEECH_RATE, 400);
+    const startTime = performance.now();
+    let animFrame = null;
+
+    function animateProgress() {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min((elapsed / estimatedMs) * 100, 100);
+      btn.style.setProperty('--mandopop-progress', `${progress}%`);
+      if (progress < 100 && btn.classList.contains('mandopop-playing')) {
+        animFrame = requestAnimationFrame(animateProgress);
+      }
+    }
+
+    function stopPlaying() {
+      if (animFrame) cancelAnimationFrame(animFrame);
+      btn.style.setProperty('--mandopop-progress', '100%');
+      setTimeout(() => {
+        btn.classList.remove('mandopop-playing');
+        btn.style.removeProperty('--mandopop-progress');
+      }, 80);
+    }
+
     btn.classList.add('mandopop-playing');
+    btn.style.setProperty('--mandopop-progress', '0%');
+    animFrame = requestAnimationFrame(animateProgress);
 
-    utterance.onend = () => {
-      btn.classList.remove('mandopop-playing');
-    };
-
-    utterance.onerror = () => {
-      btn.classList.remove('mandopop-playing');
-    };
+    utterance.onend = stopPlaying;
+    utterance.onerror = stopPlaying;
 
     window.speechSynthesis.speak(utterance);
   }

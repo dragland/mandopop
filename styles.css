@@ -18,12 +18,13 @@
   opacity: 0;
   transform: translateY(-4px);
   transition: opacity 0.15s ease, transform 0.15s ease !important;
-  pointer-events: auto !important;
+  pointer-events: none;
 }
 
 #mandopop-popup.mandopop-visible {
   opacity: 1;
   transform: translateY(0);
+  pointer-events: auto !important;
 }
 
 #mandopop-popup * {
@@ -84,11 +85,19 @@
   margin-top: 4px !important;
 }
 
-.mandopop-no-result {
+.mandopop-no-result-entry .mandopop-chinese {
   color: #ff0080 !important;
+  text-shadow: 0 0 10px rgba(255, 0, 128, 0.4) !important;
+}
+
+.mandopop-no-result-entry .mandopop-pinyin {
+  color: #ff0080 !important;
+  text-shadow: 0 0 8px rgba(255, 0, 128, 0.3) !important;
+}
+
+.mandopop-no-result-entry .mandopop-definitions {
+  color: #666666 !important;
   font-style: italic !important;
-  padding: 4px 0 !important;
-  text-shadow: 0 0 8px rgba(255, 0, 128, 0.4) !important;
 }
 
 .mandopop-audio-btn {
@@ -103,6 +112,8 @@
   cursor: pointer !important;
   transition: all 0.15s ease !important;
   flex-shrink: 0 !important;
+  position: relative !important;
+  overflow: hidden !important;
 }
 
 .mandopop-audio-btn:hover {
@@ -126,7 +137,24 @@
   fill: #00ff88 !important;
 }
 
+.mandopop-audio-btn.mandopop-playing {
+  border-color: transparent !important;
+  background:
+    conic-gradient(#00ff88 var(--mandopop-progress, 0%), transparent var(--mandopop-progress, 0%)) !important;
+}
+
+.mandopop-audio-btn.mandopop-playing::after {
+  content: '' !important;
+  display: block !important;
+  position: absolute !important;
+  inset: 2px !important;
+  border-radius: 50% !important;
+  background: #1a1a1a !important;
+}
+
 .mandopop-audio-btn.mandopop-playing svg {
-  fill: #00d4ff !important;
-  filter: drop-shadow(0 0 4px rgba(0, 212, 255, 0.6)) !important;
+  fill: #00ff88 !important;
+  filter: drop-shadow(0 0 4px rgba(0, 255, 136, 0.4)) !important;
+  position: relative !important;
+  z-index: 1 !important;
 }
