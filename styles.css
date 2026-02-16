@@ -80,8 +80,8 @@
 }
 
 .mandopop-definitions {
-  font-size: 11px !important;
-  color: #666666 !important;
+  font-size: 12px !important;
+  color: #888888 !important;
   margin-top: 4px !important;
 }
 
@@ -96,7 +96,7 @@
 }
 
 .mandopop-no-result-entry .mandopop-definitions {
-  color: #666666 !important;
+  color: #888888 !important;
   font-style: italic !important;
 }
 
@@ -129,7 +129,7 @@
 .mandopop-audio-btn svg {
   width: 14px !important;
   height: 14px !important;
-  fill: #555555 !important;
+  fill: #999999 !important;
   transition: fill 0.15s ease !important;
 }
 

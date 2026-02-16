@@ -35,6 +35,7 @@
   let popup = null;
   let selectionTimeout = null;
   let voicesLoaded = false;
+  let speechPrewarmed = false;
   let chineseVoice = null;
   let settings = {
     enabled: true,
@@ -85,6 +86,8 @@
 
     popup = document.createElement('div');
     popup.id = 'mandopop-popup';
+    popup.setAttribute('role', 'status');
+    popup.setAttribute('aria-live', 'polite');
     popup.style.setProperty('--mandopop-font-size', `${settings.fontSize}px`);
     document.body.appendChild(popup);
 
@@ -358,10 +361,22 @@
       return;
     }
 
+    if (!speechPrewarmed) {
+      speechPrewarmed = true;
+      prewarmSpeech();
+    }
+
+    if (selection.rangeCount === 0) return;
+
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
 
     const entries = await lookup(text);
+
+    // Guard against stale selection (user changed selection during async lookup)
+    const currentText = window.getSelection().toString().trim();
+    if (currentText !== text) return;
+
     renderPopup(entries, rect.left, rect.bottom);
   }
 
@@ -388,7 +403,6 @@
   // Initialize
   async function init() {
     await loadSettings();
-    await prewarmSpeech();
 
     document.addEventListener('mouseup', handleSelection);
     document.addEventListener('mousedown', handleClickOutside);

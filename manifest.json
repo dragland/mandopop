@@ -21,7 +21,8 @@
     "128": "icons/icon128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
@@ -29,12 +30,6 @@
       "js": ["content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["cedict.json"],
-      "matches": ["<all_urls>"]
     }
   ]
 }

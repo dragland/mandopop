@@ -69,6 +69,12 @@ function numberedToToneMarks(pinyin) {
 }
 
 // Extract key English words from a definition
+const stopWords = new Set([
+  'a', 'an', 'the', 'to', 'of', 'in', 'on', 'at', 'for', 'by', 'with',
+  'or', 'and', 'as', 'is', 'be', 'it', 'sb', 'sth', 'esp', 'etc', 'ie',
+  'eg', 'vs', 'also', 'see', 'cf', 'lit', 'fig', 'var', 'abbr', 'pr'
+]);
+
 function extractEnglishWords(definition) {
   // Remove parenthetical notes and brackets
   const cleaned = definition
@@ -79,13 +85,6 @@ function extractEnglishWords(definition) {
 
   // Extract words (letters, hyphens, and apostrophes)
   const words = cleaned.match(/[a-z][-'a-z]*/g) || [];
-
-  // Filter out very short words and common stop words
-  const stopWords = new Set([
-    'a', 'an', 'the', 'to', 'of', 'in', 'on', 'at', 'for', 'by', 'with',
-    'or', 'and', 'as', 'is', 'be', 'it', 'sb', 'sth', 'esp', 'etc', 'ie',
-    'eg', 'vs', 'also', 'see', 'cf', 'lit', 'fig', 'var', 'abbr', 'pr'
-  ]);
 
   return words.filter(w => w.length > 1 && !stopWords.has(w));
 }

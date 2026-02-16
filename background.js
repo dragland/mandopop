@@ -3,24 +3,117 @@
  * Manages dictionary (loaded once), settings, and message passing
  */
 
-// Constants
-const MAX_SELECTION_LENGTH = 100;
+import { lookup } from './lib/normalize.js';
+
+// IndexedDB constants
+const DB_NAME = 'mandopop';
+const DB_VERSION = 1;
+const STORE_NAME = 'dictionary';
+const DICT_KEY = 'cedict';
+const DICT_VERSION_KEY = 'cedict_version';
 
 // State
 let dictionary = null;
 let dictionaryLoading = null;
 
-// Load dictionary once
+// Get dictionary version from extension version
+function getDictVersion() {
+  return chrome.runtime.getManifest().version;
+}
+
+// Open IndexedDB
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// Read dictionary from IndexedDB cache
+async function readCache() {
+  let db;
+  try {
+    db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const versionReq = store.get(DICT_VERSION_KEY);
+      const dataReq = store.get(DICT_KEY);
+      tx.oncomplete = () => {
+        db.close();
+        if (versionReq.result === getDictVersion() && dataReq.result) {
+          resolve(dataReq.result);
+        } else {
+          resolve(null);
+        }
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  } catch {
+    db?.close();
+    return null;
+  }
+}
+
+// Write dictionary to IndexedDB cache
+async function writeCache(data) {
+  let db;
+  try {
+    db = await openDB();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.put(data, DICT_KEY);
+    store.put(getDictVersion(), DICT_VERSION_KEY);
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    });
+  } catch (error) {
+    db?.close();
+    console.error('[Mandopop] Failed to write cache:', error);
+  }
+}
+
+// Load dictionary (from IndexedDB cache or fetch)
 async function loadDictionary() {
   if (dictionary) return dictionary;
   if (dictionaryLoading) return dictionaryLoading;
 
   dictionaryLoading = (async () => {
     try {
+      // Try IndexedDB cache first
+      const cached = await readCache();
+      if (cached) {
+        dictionary = cached;
+        dictionaryLoading = null;
+        console.log('[Mandopop] Dictionary loaded from IndexedDB cache');
+        return dictionary;
+      }
+
+      // Fetch and parse
       const url = chrome.runtime.getURL('cedict.json');
       const response = await fetch(url);
+      if (!response.ok) throw new Error(`Failed to fetch dictionary: ${response.status}`);
       dictionary = await response.json();
-      console.log('[Mandopop] Dictionary loaded in service worker');
+      console.log('[Mandopop] Dictionary loaded from fetch');
+
+      // Cache for next cold start
+      writeCache(dictionary);
+
+      dictionaryLoading = null;
       return dictionary;
     } catch (error) {
       console.error('[Mandopop] Failed to load dictionary:', error);
@@ -32,98 +125,11 @@ async function loadDictionary() {
   return dictionaryLoading;
 }
 
-// Normalize word (handle inflections)
-function normalizeWord(word) {
-  const cleaned = word.toLowerCase().trim();
-  if (!cleaned || cleaned.length > MAX_SELECTION_LENGTH) return null;
-
-  const variations = [cleaned];
-
-  // Remove trailing punctuation
-  const withoutPunct = cleaned.replace(/[.,!?;:'"]+$/, '');
-  if (withoutPunct !== cleaned) variations.push(withoutPunct);
-
-  // -ies -> -y (studies -> study)
-  if (cleaned.endsWith('ies') && cleaned.length > 4) {
-    variations.push(cleaned.slice(0, -3) + 'y');
-  }
-
-  // -s / -es (cats -> cat, boxes -> box)
-  if (cleaned.endsWith('s') && cleaned.length > 2) {
-    variations.push(cleaned.slice(0, -1));
-    if (cleaned.endsWith('es') && cleaned.length > 3) {
-      variations.push(cleaned.slice(0, -2));
-    }
-    if (cleaned.endsWith('ses') || cleaned.endsWith('zes')) {
-      variations.push(cleaned.slice(0, -2));
-    }
-  }
-
-  // -ing (running -> run, making -> make)
-  if (cleaned.endsWith('ing') && cleaned.length > 4) {
-    const base = cleaned.slice(0, -3);
-    variations.push(base);
-    variations.push(base + 'e'); // making -> make
-    // Doubled consonant (running -> run)
-    if (base.length > 1 && base[base.length - 1] === base[base.length - 2]) {
-      variations.push(base.slice(0, -1));
-    }
-  }
-
-  // -ed (liked -> like, stopped -> stop)
-  if (cleaned.endsWith('ed') && cleaned.length > 3) {
-    variations.push(cleaned.slice(0, -2));
-    variations.push(cleaned.slice(0, -1)); // liked -> like
-    // Doubled consonant (stopped -> stop)
-    const base = cleaned.slice(0, -2);
-    if (base.length > 1 && base[base.length - 1] === base[base.length - 2]) {
-      variations.push(base.slice(0, -1));
-    }
-  }
-
-  // -er / -est (bigger -> big, fastest -> fast)
-  if (cleaned.endsWith('er') && cleaned.length > 3) {
-    variations.push(cleaned.slice(0, -2));
-    variations.push(cleaned.slice(0, -1)); // nicer -> nice
-    const base = cleaned.slice(0, -2);
-    if (base.length > 1 && base[base.length - 1] === base[base.length - 2]) {
-      variations.push(base.slice(0, -1)); // bigger -> big
-    }
-  }
-  if (cleaned.endsWith('est') && cleaned.length > 4) {
-    variations.push(cleaned.slice(0, -3));
-    variations.push(cleaned.slice(0, -2)); // nicest -> nice
-  }
-
-  // -ly (quickly -> quick)
-  if (cleaned.endsWith('ly') && cleaned.length > 3) {
-    variations.push(cleaned.slice(0, -2));
-  }
-
-  return variations;
-}
-
-// Lookup word in dictionary
-function lookup(text) {
-  if (!dictionary) return null;
-
-  const variations = normalizeWord(text);
-  if (!variations) return null;
-
-  for (const variant of variations) {
-    if (dictionary[variant]) {
-      return dictionary[variant];
-    }
-  }
-
-  return null;
-}
-
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'lookup') {
     loadDictionary().then(() => {
-      const result = lookup(request.text);
+      const result = lookup(request.text, dictionary);
       sendResponse({ result });
     });
     return true; // Async response
