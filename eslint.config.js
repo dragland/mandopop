@@ -2,7 +2,7 @@ import globals from 'globals';
 
 export default [
   {
-    ignores: ['node_modules/**', 'cedict.json'],
+    ignores: ['node_modules/**', 'cedict.json', 'android/**/build/**'],
   },
   {
     files: ['**/*.js'],

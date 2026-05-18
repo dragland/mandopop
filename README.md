@@ -2,6 +2,8 @@
 
 Chrome extension for learning Mandarin vocabulary while browsing. Select any English word/phrase for popup with Chinese characters, pinyin & pronunciation.
 
+An experimental sideload-only Android version lives in [`android/`](android/README.md).
+
   <img src="docs/example.png" width="45%" alt="Translation popup" />
   <img src="docs/settings.png" width="45%" alt="Settings panel" />
 
@@ -55,6 +57,7 @@ mandopop/
 ├── styles.css         # Neon hacker theme
 ├── popup.html/js      # Settings panel
 ├── cedict.json        # CC-CEDICT dictionary (preprocessed, ~17MB)
+├── android/           # Sideload-only Android app
 └── icons/             # Extension icons (學 character)
 ```
 
@@ -63,6 +66,8 @@ mandopop/
 ```bash
 npm install && npm test && npm run lint:fix
 ```
+
+Android build/test/install instructions are in [`android/README.md`](android/README.md).
 
 **Regenerate dictionary** (if CC-CEDICT updates):
 ```bash

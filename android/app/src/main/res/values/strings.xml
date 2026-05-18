@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Mandopop</string>
+    <string name="accessibility_service_description">Show Mandarin lookup cards when English text is selected.</string>
+</resources>

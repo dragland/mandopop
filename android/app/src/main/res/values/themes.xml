@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.Mandopop" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#00ff88</item>
+        <item name="android:navigationBarColor">#0a0f0a</item>
+        <item name="android:statusBarColor">#0a0f0a</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
