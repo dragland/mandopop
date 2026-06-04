@@ -81,6 +81,12 @@ function calculatePopupPosition(x, y, popupWidth, popupHeight, viewportWidth, vi
   return { left, top };
 }
 
+const CEDICT_REFERENCE_PATTERN = /([^\s,;:()\[\]\/|]*[\p{Script=Han}][^\s,;:()\[\]\/|]*)\|([^\s,;:()\[\]\/|]*[\p{Script=Han}][^\s,;:()\[\]\/|]*)(\[[^\]]+\])?/gu;
+
+function formatDefinition(definition) {
+  return definition.replace(CEDICT_REFERENCE_PATTERN, '$2$3');
+}
+
 describe('isValidSelection', () => {
   describe('accepts valid selections', () => {
     it('accepts regular English words', () => {
@@ -147,6 +153,37 @@ describe('isValidSelection', () => {
       const text = 'a'.repeat(101);
       expect(isValidSelection(text)).toBe(false);
     });
+  });
+});
+
+describe('formatDefinition', () => {
+  it('keeps simplified side of CEDICT cross references', () => {
+    expect(formatDefinition('see also 鰈|鲽[die2]')).toBe('see also 鲽[die2]');
+  });
+
+  it('formats multiple classifier references', () => {
+    expect(formatDefinition('CL:個|个[ge4],塊|块[kuai4]')).toBe('CL:个[ge4],块[kuai4]');
+  });
+
+  it('keeps simplified side of unbracketed CEDICT cross references', () => {
+    expect(formatDefinition('one of the Six Methods 六書|六书')).toBe('one of the Six Methods 六书');
+  });
+
+  it('handles middle-dot names in cross references', () => {
+    expect(formatDefinition('Herman Melville 赫曼·麥爾維爾|赫曼·麦尔维尔[He4 man4 Mai4 er3 wei2 er3]'))
+      .toBe('Herman Melville 赫曼·麦尔维尔[He4 man4 Mai4 er3 wei2 er3]');
+  });
+
+  it('handles mixed symbol reference tokens', () => {
+    expect(formatDefinition('95後|95后[jiu3 wu3 hou4]')).toBe('95后[jiu3 wu3 hou4]');
+    expect(formatDefinition('B型超聲|B型超声[B xing2 chao1 sheng1]'))
+      .toBe('B型超声[B xing2 chao1 sheng1]');
+    expect(formatDefinition('γ射線|γ射线[gamma she4 xian4]')).toBe('γ射线[gamma she4 xian4]');
+    expect(formatDefinition('∼的大門|∼的大门[xx5 de5 da4 men2]')).toBe('∼的大门[xx5 de5 da4 men2]');
+  });
+
+  it('leaves definitions without cross references unchanged', () => {
+    expect(formatDefinition('hello; hi')).toBe('hello; hi');
   });
 });
 

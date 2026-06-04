@@ -231,7 +231,7 @@ private fun Header() {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            text = "學",
+            text = "学",
             color = NeonGreen,
             fontSize = 40.sp,
             fontWeight = FontWeight.SemiBold,

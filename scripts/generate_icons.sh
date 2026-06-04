@@ -11,18 +11,21 @@ for size in 16 48 128; do
   blur_radius=$((size / 6))
   if [ $blur_radius -lt 1 ]; then blur_radius=1; fi
 
-  # Create transparent background with bright neon green 學 character
+  # Create transparent background with bright neon green 学 character
   magick -size ${size}x${size} xc:transparent \
     -fill '#00ff88' \
     -font "Heiti-SC-Medium" \
     -pointsize $font_size \
     -gravity center \
-    -annotate +0+0 "學" \
+    -annotate +0+0 "学" \
     \( +clone -channel A -blur 0x${blur_radius} -level 0,50% +channel \) \
     -compose DstOver -composite \
     icons/icon${size}.png
 
   echo "Created icon${size}.png"
 done
+
+cp icons/icon128.png android/app/src/main/res/drawable/mandopop_icon.png
+echo "Updated Android icon"
 
 echo "Done!"

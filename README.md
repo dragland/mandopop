@@ -1,4 +1,4 @@
-# 學 Mandopop
+# 学 Mandopop
 
 Chrome extension for learning Mandarin vocabulary while browsing. Select any English word/phrase for popup with Chinese characters, pinyin & pronunciation.
 
@@ -58,7 +58,7 @@ mandopop/
 ├── popup.html/js      # Settings panel
 ├── cedict.json        # CC-CEDICT dictionary (preprocessed, ~17MB)
 ├── android/           # Sideload-only Android app
-└── icons/             # Extension icons (學 character)
+└── icons/             # Extension icons (学 character)
 ```
 
 ## Development

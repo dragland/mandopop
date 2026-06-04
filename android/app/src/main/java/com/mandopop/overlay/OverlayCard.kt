@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mandopop.R
 import com.mandopop.dictionary.CedictEntry
+import com.mandopop.dictionary.CedictDefinitionFormatter
 
 @Composable
 fun OverlayCard(
@@ -187,7 +188,7 @@ private fun EntryRow(
 
             if (showDefinitions) {
                 Text(
-                    text = entry.definitions.take(2).joinToString("; "),
+                    text = CedictDefinitionFormatter.formatList(entry.definitions),
                     color = MutedText,
                     fontSize = 12.sp,
                 )
