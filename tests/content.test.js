@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readDefinitionFormattingCases } from './fixtures.js';
+import '../content/cedict_formatter.js';
 
 /**
  * Tests for content script logic
@@ -81,11 +83,8 @@ function calculatePopupPosition(x, y, popupWidth, popupHeight, viewportWidth, vi
   return { left, top };
 }
 
-const CEDICT_REFERENCE_PATTERN = /([^\s,;:()\[\]\/|]*[\p{Script=Han}][^\s,;:()\[\]\/|]*)\|([^\s,;:()\[\]\/|]*[\p{Script=Han}][^\s,;:()\[\]\/|]*)(\[[^\]]+\])?/gu;
-
-function formatDefinition(definition) {
-  return definition.replace(CEDICT_REFERENCE_PATTERN, '$2$3');
-}
+const { formatDefinition } = globalThis.MandopopCedictFormatter;
+const definitionFormattingCases = readDefinitionFormattingCases();
 
 describe('isValidSelection', () => {
   describe('accepts valid selections', () => {
@@ -157,6 +156,12 @@ describe('isValidSelection', () => {
 });
 
 describe('formatDefinition', () => {
+  describe('shared parity fixtures', () => {
+    it.each(definitionFormattingCases)('$name', ({ input, expected }) => {
+      expect(formatDefinition(input)).toBe(expected);
+    });
+  });
+
   it('keeps simplified side of CEDICT cross references', () => {
     expect(formatDefinition('see also 鰈|鲽[die2]')).toBe('see also 鲽[die2]');
   });

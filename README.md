@@ -51,9 +51,14 @@ mandopop/
 ├── manifest.json      # Extension config (MV3)
 ├── background.js      # Service worker (ES module) - dictionary cache & lookups
 ├── content.js         # Selection detection & popup rendering (IIFE)
+├── content/
+│   └── cedict_formatter.js # No-build content-script formatter
+├── scripts/
+│   └── preprocess_cedict.js # CC-CEDICT → cedict.json
 ├── lib/
 │   ├── normalize.js   # Word normalization & lookup logic (ESM)
 │   └── pinyin.js      # Pinyin conversion & word extraction (ESM)
+├── testdata/          # Shared browser/Android parity fixtures
 ├── styles.css         # Neon hacker theme
 ├── popup.html/js      # Settings panel
 ├── cedict.json        # CC-CEDICT dictionary (preprocessed, ~17MB)
@@ -64,7 +69,7 @@ mandopop/
 ## Development
 
 ```bash
-npm install && npm test && npm run lint:fix
+npm install && npm test && npm run lint
 ```
 
 Android build/test/install instructions are in [`android/README.md`](android/README.md).
@@ -77,7 +82,7 @@ gunzip cedict.gz
 mv cedict cedict_ts.u8
 
 # Preprocess
-node scripts/preprocess_cedict.cjs
+node scripts/preprocess_cedict.js
 
 # Cleanup
 rm cedict_ts.u8

@@ -43,15 +43,7 @@
     fontSize: 24
   };
 
-  const CEDICT_REFERENCE_PATTERN = /([^\s,;:()\[\]\/|]*[\p{Script=Han}][^\s,;:()\[\]\/|]*)\|([^\s,;:()\[\]\/|]*[\p{Script=Han}][^\s,;:()\[\]\/|]*)(\[[^\]]+\])?/gu;
-
-  function formatDefinition(definition) {
-    return definition.replace(CEDICT_REFERENCE_PATTERN, '$2$3');
-  }
-
-  function formatDefinitions(definitions) {
-    return definitions.slice(0, 2).map(formatDefinition).join('; ');
-  }
+  const { formatDefinitions } = globalThis.MandopopCedictFormatter;
 
   // Load settings
   async function loadSettings() {

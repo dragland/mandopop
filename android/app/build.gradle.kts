@@ -1,3 +1,5 @@
+import org.gradle.api.tasks.testing.Test
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -43,6 +45,7 @@ val generatedDictionaryDir = layout.buildDirectory.dir("generated/assets/diction
 val dictionaryOutput = generatedDictionaryDir.map { it.file("cedict.db") }
 val dictionaryHashOutput = generatedDictionaryDir.map { it.file("cedict.sha256") }
 val dictionaryScript = rootProject.layout.projectDirectory.file("scripts/build_dictionary.py")
+val sharedTestdataDir = rootProject.layout.projectDirectory.dir("../testdata")
 
 android.sourceSets["main"].assets.srcDir(generatedDictionaryDir)
 
@@ -62,6 +65,10 @@ tasks.register<Exec>("buildDictionary") {
 
 tasks.named("preBuild") {
     dependsOn("buildDictionary")
+}
+
+tasks.withType<Test>().configureEach {
+    inputs.dir(sharedTestdataDir)
 }
 
 dependencies {

@@ -1,0 +1,24 @@
+# name	input	expected_variations
+# expected_variations uses | separators; <null> means normalizeWord returns null.
+uppercase	CAT	cat
+empty input		<null>
+trailing punctuation	cat.	cat.|cat
+punctuated plural	cats.	cats.|cats|cat
+simple plural	cats	cats|cat
+es plural	boxes	boxes|boxe|box
+ies plural	studies	studies|study|studie|studi
+simple gerund	eating	eating|eat|eate
+silent e gerund	making	making|mak|make
+doubled gerund	running	running|runn|runne|run
+punctuated gerund	running.	running.|running|runn|runne|run
+simple past	walked	walked|walk|walke
+silent e past	liked	liked|lik|like
+punctuated silent e past	liked,	liked,|liked|lik|like
+doubled past	stopped	stopped|stopp|stoppe|stop
+doubled comparative	bigger	bigger|bigg|bigge|big
+silent e superlative	nicest	nicest|nic|nice
+ly adverb	quickly	quickly|quick
+phrase exact	ice cream	ice cream
+phrase plural	ice creams	ice creams|ice cream
+phrase inflection	running waters	running waters|running water|runn waters|runn water|runne waters|runne water|run waters|run water
+too many phrase words	one two three four	<null>

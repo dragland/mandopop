@@ -8,6 +8,13 @@ import org.junit.Test
 
 class NormalizerTest {
     @Test
+    fun matchesSharedNormalizationFixtures() {
+        for (case in SharedFixtures.normalizationCases()) {
+            assertEquals(case.name, case.expected, Normalizer.normalizeWord(case.input))
+        }
+    }
+
+    @Test
     fun basicBehavior() {
         assertEquals("cat", Normalizer.normalizeWord("CAT")?.first())
         assertEquals("cat", Normalizer.normalizeWord("  cat  ")?.first())

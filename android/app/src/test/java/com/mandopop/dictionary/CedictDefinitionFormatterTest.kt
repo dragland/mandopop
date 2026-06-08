@@ -5,6 +5,13 @@ import org.junit.Test
 
 class CedictDefinitionFormatterTest {
     @Test
+    fun matchesSharedDefinitionFormattingFixtures() {
+        for (case in SharedFixtures.definitionFormattingCases()) {
+            assertEquals(case.name, case.expected, CedictDefinitionFormatter.format(case.input))
+        }
+    }
+
+    @Test
     fun keepsSimplifiedSideOfBracketedReferences() {
         assertEquals("see also 鲽[die2]", CedictDefinitionFormatter.format("see also 鰈|鲽[die2]"))
     }

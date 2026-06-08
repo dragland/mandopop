@@ -1,0 +1,11 @@
+# name	input	expected
+# input and expected are tab-separated.
+bracketed cross reference	see also 鰈|鲽[die2]	see also 鲽[die2]
+multiple classifier references	CL:個|个[ge4],塊|块[kuai4]	CL:个[ge4],块[kuai4]
+unbracketed cross reference	one of the Six Methods 六書|六书	one of the Six Methods 六书
+middle-dot name	Herman Melville 赫曼·麥爾維爾|赫曼·麦尔维尔[He4 man4 Mai4 er3 wei2 er3]	Herman Melville 赫曼·麦尔维尔[He4 man4 Mai4 er3 wei2 er3]
+numeric token	95後|95后[jiu3 wu3 hou4]	95后[jiu3 wu3 hou4]
+latin prefix token	B型超聲|B型超声[B xing2 chao1 sheng1]	B型超声[B xing2 chao1 sheng1]
+greek prefix token	γ射線|γ射线[gamma she4 xian4]	γ射线[gamma she4 xian4]
+symbol prefix token	∼的大門|∼的大门[xx5 de5 da4 men2]	∼的大门[xx5 de5 da4 men2]
+plain definition	hello; hi	hello; hi

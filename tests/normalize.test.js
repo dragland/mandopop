@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeWord, lookup } from '../lib/normalize.js';
+import { readNormalizationCases } from './fixtures.js';
+
+const normalizationCases = readNormalizationCases();
 
 describe('normalizeWord', () => {
+  describe('shared parity fixtures', () => {
+    it.each(normalizationCases)('$name', ({ input, expected }) => {
+      expect(normalizeWord(input)).toEqual(expected);
+    });
+  });
+
   describe('basic behavior', () => {
     it('returns original word as first variation', () => {
       const result = normalizeWord('cat');
