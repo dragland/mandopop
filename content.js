@@ -256,34 +256,35 @@
     return chineseVoices[0] || null;
   }
 
-  // Pre-warm speech synthesis
+  // Pre-warm speech synthesis: select an initial voice and warm the engine
+  // once voices are available. One-shot — the listener removes itself on first
+  // success. Voices that load later are picked up lazily at click time (see
+  // handleAudioClick), so no persistent listener is needed.
   async function prewarmSpeech() {
     if (!('speechSynthesis' in window)) return;
 
     return new Promise((resolve) => {
-      const checkVoices = () => {
+      const onVoices = () => {
         const voices = window.speechSynthesis.getVoices();
-        if (voices.length > 0) {
-          voicesLoaded = true;
-          chineseVoice = findChineseVoice(voices);
-          console.log('[Mandopop] Voice selected:', chineseVoice?.name || 'default');
+        if (voices.length === 0) return;
 
-          const warmup = new SpeechSynthesisUtterance('');
-          warmup.volume = 0;
-          window.speechSynthesis.speak(warmup);
+        window.speechSynthesis.removeEventListener('voiceschanged', onVoices);
+        voicesLoaded = true;
+        chineseVoice = findChineseVoice(voices);
+        console.log('[Mandopop] Voice selected:', chineseVoice?.name || 'default');
 
-          resolve();
-        }
+        const warmup = new SpeechSynthesisUtterance('');
+        warmup.volume = 0;
+        window.speechSynthesis.speak(warmup);
+
+        resolve();
       };
 
-      checkVoices();
+      window.speechSynthesis.addEventListener('voiceschanged', onVoices);
+      onVoices();
 
-      if (!voicesLoaded) {
-        window.speechSynthesis.onvoiceschanged = () => {
-          checkVoices();
-        };
-        setTimeout(resolve, 2000);
-      }
+      // Resolve even if voices never arrive, so callers don't hang.
+      if (!voicesLoaded) setTimeout(resolve, 2000);
     });
   }
 
@@ -298,6 +299,14 @@
     if (!text || !('speechSynthesis' in window)) return;
 
     window.speechSynthesis.cancel();
+
+    // Voices may finish loading after prewarm; re-pick from the current list
+    // (cheap, synchronous) so the best zh-TW/Meijia voice is used if it has
+    // since become available.
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      chineseVoice = findChineseVoice(voices);
+    }
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'zh-TW';

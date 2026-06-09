@@ -5,7 +5,8 @@
   "description": "Learn Mandarin vocabulary while browsing. Select English text to see Chinese translations with pinyin and pronunciation.",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "unlimitedStorage"
   ],
   "action": {
     "default_popup": "popup.html",

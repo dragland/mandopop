@@ -63,9 +63,45 @@ describe('numberedToToneMarks', () => {
       expect(numberedToToneMarks('lv4')).toBe('lǜ');
     });
 
-    it('handles u-umlaut with tone marks - lu:3 style input', () => {
-      // The current implementation uses 'v' for u-umlaut
-      expect(numberedToToneMarks('lv3')).toBe('lǚ');
+    // CC-CEDICT writes ü as 'u:' in its raw data — this is the canonical form.
+    it('converts u: notation - lu:e4 -> lüè', () => {
+      expect(numberedToToneMarks('lu:e4')).toBe('lüè');
+    });
+
+    it('converts u: notation on last vowel - nu:3 -> nǚ', () => {
+      expect(numberedToToneMarks('nu:3')).toBe('nǚ');
+    });
+
+    it('converts u: notation - lu:4 -> lǜ', () => {
+      expect(numberedToToneMarks('lu:4')).toBe('lǜ');
+    });
+
+    it('handles capitalized u: syllable - Lu:3 -> Lǚ', () => {
+      expect(numberedToToneMarks('Lu:3')).toBe('Lǚ');
+    });
+  });
+
+  describe('capitalized syllables (proper nouns)', () => {
+    it('marks an uppercase initial vowel - An1 -> Ān', () => {
+      expect(numberedToToneMarks('An1')).toBe('Ān');
+    });
+
+    it('marks uppercase "e" - Er4 -> Èr', () => {
+      expect(numberedToToneMarks('Er4')).toBe('Èr');
+    });
+
+    it('marks uppercase "o" in "ou" - Ou1 zhou1 -> Ōu zhōu', () => {
+      expect(numberedToToneMarks('Ou1 zhou1')).toBe('Ōu zhōu');
+    });
+
+    it('marks uppercase "a" in "ao" - Ao4 -> Ào', () => {
+      expect(numberedToToneMarks('Ao4')).toBe('Ào');
+    });
+
+    it('leaves toneless letter-initialisms untouched - AA, OK', () => {
+      expect(numberedToToneMarks('AA')).toBe('AA');
+      expect(numberedToToneMarks('AA zhi4')).toBe('AA zhì');
+      expect(numberedToToneMarks('D V D')).toBe('D V D');
     });
   });
 

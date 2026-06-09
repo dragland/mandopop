@@ -40,7 +40,7 @@ Click the extension icon to configure:
 ## Tech Stack
 
 - **Platform**: Chrome Extension (Manifest V3)
-- **Dictionary**: CC-CEDICT (bundled, ~17MB, cached in IndexedDB for fast service worker restarts)
+- **Dictionary**: CC-CEDICT (bundled, ~21MB, cached in IndexedDB for fast service worker restarts)
 - **Audio**: Web Speech API (prefers Meijia voice for Taiwan Mandarin)
 - **Storage**: chrome.storage.sync for settings, IndexedDB for dictionary cache
 
@@ -61,7 +61,9 @@ mandopop/
 ├── testdata/          # Shared browser/Android parity fixtures
 ├── styles.css         # Neon hacker theme
 ├── popup.html/js      # Settings panel
-├── cedict.json        # CC-CEDICT dictionary (preprocessed, ~17MB)
+├── cedict_ts.u8       # CC-CEDICT source (committed; input to preprocessing)
+├── cedict.json        # CC-CEDICT dictionary (preprocessed, ~21MB)
+├── dict_version.js    # Generated dictionary content hash (cache key)
 ├── android/           # Sideload-only Android app
 └── icons/             # Extension icons (学 character)
 ```
@@ -74,18 +76,17 @@ npm install && npm test && npm run lint
 
 Android build/test/install instructions are in [`android/README.md`](android/README.md).
 
-**Regenerate dictionary** (if CC-CEDICT updates):
+**Rebuild dictionary** (the `cedict_ts.u8` source is committed, so this is reproducible offline):
 ```bash
-# Download latest CC-CEDICT
+npm run dict:build          # regenerates cedict.json + dict_version.js from cedict_ts.u8
+```
+
+**Update to a newer CC-CEDICT release** (replaces the committed source):
+```bash
 curl -o cedict.gz "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
-gunzip cedict.gz
-mv cedict cedict_ts.u8
-
-# Preprocess
-node scripts/preprocess_cedict.js
-
-# Cleanup
-rm cedict_ts.u8
+gunzip cedict.gz && mv cedict cedict_ts.u8
+npm run dict:build
+# commit the updated cedict_ts.u8, cedict.json, and dict_version.js together
 ```
 
 **Regenerate icons**:

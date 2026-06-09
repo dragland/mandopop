@@ -4,6 +4,7 @@
  */
 
 import { lookup } from './lib/normalize.js';
+import { DICT_HASH } from './dict_version.js';
 
 // IndexedDB constants
 const DB_NAME = 'mandopop';
@@ -16,9 +17,11 @@ const DICT_VERSION_KEY = 'cedict_version';
 let dictionary = null;
 let dictionaryLoading = null;
 
-// Get dictionary version from extension version
+// Cache version is the dictionary's content hash (generated alongside
+// cedict.json), so regenerating the dictionary invalidates stale caches
+// automatically without needing a manifest version bump.
 function getDictVersion() {
-  return chrome.runtime.getManifest().version;
+  return DICT_HASH;
 }
 
 // Open IndexedDB
@@ -33,58 +36,61 @@ function openDB() {
   });
 }
 
-// Read dictionary from IndexedDB cache
+// Best-effort read of the cached dictionary. Resolves to the cached value, or
+// null on a cache miss OR any error (corrupt DB, transaction failure) — the
+// caller falls back to the bundled file. Never rejects.
 async function readCache() {
   let db;
   try {
     db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const versionReq = store.get(DICT_VERSION_KEY);
-      const dataReq = store.get(DICT_KEY);
-      tx.oncomplete = () => {
-        db.close();
-        if (versionReq.result === getDictVersion() && dataReq.result) {
-          resolve(dataReq.result);
-        } else {
-          resolve(null);
-        }
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error);
-      };
-    });
-  } catch {
-    db?.close();
+  } catch (error) {
+    console.warn('[Mandopop] Cache unavailable, will fetch:', error);
     return null;
   }
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
+    const versionReq = store.get(DICT_VERSION_KEY);
+    const dataReq = store.get(DICT_KEY);
+    tx.oncomplete = () => {
+      db.close();
+      const fresh = versionReq.result === getDictVersion() && dataReq.result;
+      resolve(fresh ? dataReq.result : null);
+    };
+    tx.onerror = () => {
+      db.close();
+      console.warn('[Mandopop] Cache read failed, will fetch:', tx.error);
+      resolve(null);
+    };
+  });
 }
 
-// Write dictionary to IndexedDB cache
+// Best-effort cache write. Logs and swallows failures — the dictionary is
+// always recoverable from the bundled file, so a write failure is non-fatal.
+// Never rejects.
 async function writeCache(data) {
   let db;
   try {
     db = await openDB();
+  } catch (error) {
+    console.error('[Mandopop] Failed to write cache:', error);
+    return;
+  }
+  return new Promise((resolve) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     store.put(data, DICT_KEY);
     store.put(getDictVersion(), DICT_VERSION_KEY);
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error);
-      };
-    });
-  } catch (error) {
-    db?.close();
-    console.error('[Mandopop] Failed to write cache:', error);
-  }
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      db.close();
+      console.error('[Mandopop] Failed to write cache:', tx.error);
+      resolve();
+    };
+  });
 }
 
 // Load dictionary (from IndexedDB cache or fetch)
@@ -94,7 +100,8 @@ async function loadDictionary() {
 
   dictionaryLoading = (async () => {
     try {
-      // Try IndexedDB cache first
+      // Try IndexedDB cache first; readCache returns null (never throws) on a
+      // miss or any cache error, falling through to the bundled file.
       const cached = await readCache();
       if (cached) {
         dictionary = cached;
@@ -110,7 +117,7 @@ async function loadDictionary() {
       dictionary = await response.json();
       console.log('[Mandopop] Dictionary loaded from fetch');
 
-      // Cache for next cold start
+      // Cache for next cold start (fire-and-forget; writeCache self-logs).
       writeCache(dictionary);
 
       dictionaryLoading = null;

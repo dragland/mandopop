@@ -18,19 +18,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   fontSizeValue.textContent = `${fontSizeSlider.value}px`;
   previewChinese.style.fontSize = `${fontSizeSlider.value}px`;
 
+  // Persist a setting, surfacing failures instead of silently dropping them.
+  function save(items) {
+    chrome.storage.sync.set(items, () => {
+      if (chrome.runtime.lastError) {
+        console.error('[Mandopop] Failed to save settings:', chrome.runtime.lastError);
+      }
+    });
+  }
+
   // Save on change
   enabledToggle.addEventListener('change', () => {
-    chrome.storage.sync.set({ enabled: enabledToggle.checked });
+    save({ enabled: enabledToggle.checked });
   });
 
   showAudioToggle.addEventListener('change', () => {
-    chrome.storage.sync.set({ showAudio: showAudioToggle.checked });
+    save({ showAudio: showAudioToggle.checked });
   });
 
+  // Update the live preview on every input, but only persist on 'change'
+  // (fires once on release) to avoid hammering chrome.storage.sync's write
+  // quota (~120 writes/min) while dragging.
   fontSizeSlider.addEventListener('input', () => {
     const size = fontSizeSlider.value;
     fontSizeValue.textContent = `${size}px`;
     previewChinese.style.fontSize = `${size}px`;
-    chrome.storage.sync.set({ fontSize: parseInt(size, 10) });
+  });
+
+  fontSizeSlider.addEventListener('change', () => {
+    save({ fontSize: parseInt(fontSizeSlider.value, 10) });
   });
 });
