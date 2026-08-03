@@ -97,10 +97,9 @@ class MainActivity : ComponentActivity() {
         // pad by the insets rather than letting the header slide under the status bar.
         enableEdgeToEdge()
 
-        // Off the main thread: the signed-in check decrypts from the keystore, which is a binder
-        // round trip plus a disk read.
+        // Off the main thread: the signed-in check decrypts a stored token and hits disk.
         lifecycleScope.launch {
-            if (withContext(Dispatchers.IO) { traverseSync.isSignedIn }) {
+            if (withContext(Dispatchers.IO) { traverseSync.isSignedIn() }) {
                 SyncWorker.ensureScheduled(applicationContext)
             }
         }
@@ -125,7 +124,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    if (!traverseSync.isSignedIn) return@withContext null
+                    if (!traverseSync.isSignedIn()) return@withContext null
                     Triple(
                         traverseSync.localDueCount(),
                         traverseSync.localLiveCount(),

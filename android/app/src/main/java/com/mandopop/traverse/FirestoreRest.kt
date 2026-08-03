@@ -179,8 +179,8 @@ class FirestoreRest(private val auth: TraverseAuth) {
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
     companion object {
-        private val BASE =
-            "https://firestore.googleapis.com/v1/projects/${TraverseAuth.PROJECT_ID}" +
+        private val BASE: String
+            get() = "https://firestore.googleapis.com/v1/projects/${TraverseAuth.PROJECT_ID}" +
                 "/databases/(default)/documents"
         private const val PAGE_SIZE = 300
         private const val MAX_PAGES = 50

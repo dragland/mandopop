@@ -1,6 +1,7 @@
 package com.mandopop.traverse
 
 import android.content.Context
+import com.mandopop.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -12,38 +13,34 @@ import java.net.URLEncoder
  * Firebase Auth against the Traverse project over REST.
  *
  * The user's password is used exactly once, to exchange for a refresh token, and is never
- * persisted. From then on the refresh token (Keystore-encrypted) mints short-lived ID tokens.
+ * persisted. From then on the refresh token, sealed by Tink, mints short-lived ID tokens.
  */
 class TraverseAuth private constructor(context: Context) {
-    private val secrets = KeystoreSecretStore(context.applicationContext)
+    private val secrets = SecretStore(context)
 
     /** Token and its expiry as one immutable value, so the pair can never be read half-updated. */
     private data class Token(val value: String, val expiresAtMs: Long)
 
+    data class Identity(val uid: String, val email: String)
+
     @Volatile
     private var identity: Identity? = null
 
-    data class Identity(val uid: String, val email: String)
-
     /**
-     * Decrypting from the keystore is a binder round trip plus a disk read, so the signed-in
-     * identity is resolved once and cached. Callers hit this on the main thread (cold start,
-     * composition), which is why it must not touch the keystore every time.
+     * Resolved once and cached. Reading it decrypts through Tink and touches disk, so it is a
+     * suspending call — callers must not need the answer synchronously during composition.
      */
-    private fun identity(): Identity? {
+    private suspend fun identity(): Identity? {
         identity?.let { return it }
-        return synchronized(this) {
-            identity ?: run {
-                val uid = secrets.get(KEY_UID)
-                val email = secrets.get(KEY_EMAIL)
-                if (uid == null) null else Identity(uid, email.orEmpty()).also { identity = it }
-            }
-        }
+        val uid = secrets.get(KEY_UID) ?: return null
+        return Identity(uid, secrets.get(KEY_EMAIL).orEmpty()).also { identity = it }
     }
 
-    val isSignedIn: Boolean get() = identity() != null
-    val uid: String? get() = identity()?.uid
-    val email: String? get() = identity()?.email
+    suspend fun isSignedIn(): Boolean = identity() != null
+
+    suspend fun uid(): String? = identity()?.uid
+
+    suspend fun email(): String? = identity()?.email
 
     /** Exchanges email+password for a refresh token. The password is not retained. */
     suspend fun signIn(email: String, password: String) {
@@ -68,11 +65,9 @@ class TraverseAuth private constructor(context: Context) {
                 throw TraverseException("Sign-in response had no localId")
             }
 
-            // Losing the refresh token means a forced re-login, so flush it synchronously rather
-            // than risking a process death between apply() and the disk write.
-            secrets.put(KEY_REFRESH_TOKEN, refreshToken, commit = true)
-            secrets.put(KEY_UID, localId, commit = true)
-            secrets.put(KEY_EMAIL, email, commit = true)
+            secrets.put(KEY_REFRESH_TOKEN, refreshToken)
+            secrets.put(KEY_UID, localId)
+            secrets.put(KEY_EMAIL, email)
             identity = Identity(localId, email)
 
             cached = json.optString("idToken").takeIf { it.isNotBlank() }?.let {
@@ -81,7 +76,7 @@ class TraverseAuth private constructor(context: Context) {
         }
     }
 
-    fun signOut() {
+    suspend fun signOut() {
         cached = null
         identity = null
         secrets.clear()
@@ -128,7 +123,7 @@ class TraverseAuth private constructor(context: Context) {
                 throw TraverseException("Refresh response had no id_token")
             }
             json.optString("refresh_token").takeIf { it.isNotBlank() }?.let {
-                secrets.put(KEY_REFRESH_TOKEN, it, commit = true)
+                secrets.put(KEY_REFRESH_TOKEN, it)
             }
             cached = Token(idToken, expiryFromSeconds(json.optString("expires_in")))
             idToken
@@ -152,16 +147,13 @@ class TraverseAuth private constructor(context: Context) {
 
     companion object {
         /**
-         * Traverse's public Firebase web config, as served in their web bundle.
-         *
-         * A Firebase web API key is a project identifier, not a credential — it authorises
-         * nothing on its own, and Google ships it in the clear in every web client. Access is
-         * gated by Firestore security rules against the signed-in user. The actual secrets here
-         * are the user's password (never stored) and their refresh token (Keystore-encrypted,
-         * on-device only), so nothing sensitive lives in this repo.
+         * Traverse's Firebase project, from build config. A Firebase web API key identifies a
+         * project; it is not a credential and grants nothing on its own. Access is gated by
+         * Firestore rules against the signed-in user, so the only secrets are the password (never
+         * stored) and the refresh token (encrypted on-device).
          */
-        const val API_KEY = "AIzaSyAsG5pbllBxykmI8Gd94-zwB0WouEVg6y0"
-        const val PROJECT_ID = "alley-d0944"
+        val API_KEY: String get() = BuildConfig.TRAVERSE_API_KEY
+        val PROJECT_ID: String get() = BuildConfig.TRAVERSE_PROJECT_ID
 
         private val refreshMutex = Mutex()
 

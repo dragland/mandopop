@@ -50,8 +50,8 @@ class TraverseSync(context: Context) {
         database.cardContentDao(),
     )
 
-    val isSignedIn: Boolean get() = auth.isSignedIn
-    val signedInEmail: String? get() = auth.email
+    suspend fun isSignedIn(): Boolean = auth.isSignedIn()
+    suspend fun signedInEmail(): String? = auth.email()
 
     suspend fun signIn(email: String, password: String) = auth.signIn(email, password)
 
@@ -88,8 +88,7 @@ class TraverseSync(context: Context) {
     suspend fun state(): SyncStateEntity = database.syncStateDao().get() ?: SyncStateEntity()
 
     suspend fun sync(force: Boolean = false): SyncOutcome {
-        if (!auth.isSignedIn) return SyncOutcome.NotSignedIn
-        val uid = auth.uid ?: return SyncOutcome.NotSignedIn
+        val uid = auth.uid() ?: return SyncOutcome.NotSignedIn
 
         val scheduleDao = database.scheduleDao()
         val syncStateDao = database.syncStateDao()

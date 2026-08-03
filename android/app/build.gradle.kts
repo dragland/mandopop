@@ -18,10 +18,27 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Traverse's public Firebase web config. Not a secret — Google serves these to every web
+        // client and they authorise nothing on their own — but they are deployment configuration
+        // rather than program logic, so they live here and can be overridden with
+        // -Ptraverse.apiKey=... without touching source. Only the optional Traverse sync reads
+        // them; the dictionary and the Chrome extension never do.
+        buildConfigField(
+            "String",
+            "TRAVERSE_API_KEY",
+            "\"${findProperty("traverse.apiKey") ?: "AIzaSyAsG5pbllBxykmI8Gd94-zwB0WouEVg6y0"}\"",
+        )
+        buildConfigField(
+            "String",
+            "TRAVERSE_PROJECT_ID",
+            "\"${findProperty("traverse.projectId") ?: "alley-d0944"}\"",
+        )
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     androidResources {
@@ -95,6 +112,11 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Token storage. EncryptedSharedPreferences is deprecated; DataStore + Tink is its
+    // replacement, and Tink handles the per-OEM Keystore brittleness that deprecated it.
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("com.google.crypto.tink:tink-android:1.15.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

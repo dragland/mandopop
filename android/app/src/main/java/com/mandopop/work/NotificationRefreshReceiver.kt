@@ -34,7 +34,7 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val sync = TraverseSync(appContext)
-                if (!sync.isSignedIn) {
+                if (!sync.isSignedIn()) {
                     DueNotifier.cancel(appContext)
                     return@launch
                 }

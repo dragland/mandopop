@@ -52,16 +52,20 @@ internal fun TraversePanel(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var signedIn by remember { mutableStateOf(sync.isSignedIn) }
-    var email by remember { mutableStateOf(sync.signedInEmail.orEmpty()) }
+    // Resolved asynchronously: reading it decrypts through Tink and touches disk, so the panel
+    // starts in its signed-out shape and corrects itself once loaded.
+    var signedIn by remember { mutableStateOf(false) }
+    var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var dueCount by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(signedIn) {
-        if (!signedIn) return@LaunchedEffect
+    LaunchedEffect(Unit) {
+        if (!sync.isSignedIn()) return@LaunchedEffect
+        signedIn = true
+        email = sync.signedInEmail().orEmpty()
         // Seed from the local mirror so reopening the app shows the count immediately, without
         // waiting for a network round trip.
         runCatching {
