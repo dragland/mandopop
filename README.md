@@ -130,6 +130,11 @@ Next, roughly in order — each unlocks the one after:
 - **Vocabulary sweep** — card content currently resolves only for cards that are *due*. The
   features above want the whole deck.
 
+## License
+
+MIT — see [LICENSE](LICENSE). The bundled dictionary and frequency data keeps its own terms;
+CC-CEDICT is share-alike, so the generated `cedict.json` and SQLite asset are too.
+
 ## Credits
 
 - Dictionary: [CC-CEDICT](https://cc-cedict.org/), CC BY-SA 4.0. `cedict.json` and the generated
