@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Learning-state sync only. No user content leaves the device (see AGENTS.md). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      Package visibility filtering (Android 11+) hides other apps by default, which would make
+      getLaunchIntentForPackage return null and break the notification's tap-through to Traverse.
+    -->
+    <queries>
+        <package android:name="com.traverse.android" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
