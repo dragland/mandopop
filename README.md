@@ -132,8 +132,10 @@ Next, roughly in order — each unlocks the one after:
 
 ## Credits
 
-- Dictionary: [CC-CEDICT](https://cc-cedict.org/) (CC BY-SA 4.0)
+- Dictionary: [CC-CEDICT](https://cc-cedict.org/), CC BY-SA 4.0. `cedict.json` and the generated
+  SQLite asset are derivative works and carry the same share-alike terms.
 - Word frequencies: SUBTLEX-CH — Cai Q, Brysbaert M (2010),
   [*SUBTLEX-CH: Chinese Word and Character Frequencies Based on Film Subtitles*](https://journals.plos.org/plosone/article?id=10.1371%2Fjournal.pone.0010729),
-  PLoS ONE 5(6): e10729 (CC BY). Trimmed to headword + occurrences per million.
+  PLoS ONE 5(6): e10729, CC BY. `subtlex_ch.tsv` is that data trimmed to headword and
+  occurrences per million.
 - Audio: macOS/Chrome Web Speech API
