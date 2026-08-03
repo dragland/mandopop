@@ -9,11 +9,28 @@ import sqlite3
 import sys
 from pathlib import Path
 
+# Bump when the schema changes; DictionaryRepository.EXPECTED_USER_VERSION must match.
+SCHEMA_VERSION = 2
+
+# Must match FORMAT_VERSION in scripts/preprocess_cedict.js.
+FORMAT_VERSION = 2
+
 
 def build_dictionary(input_path: Path, output_path: Path) -> None:
     source_sha256 = file_sha256(input_path)
     with input_path.open("r", encoding="utf-8") as source:
         dictionary = json.load(source)
+
+    # Fail loudly on an old-format artifact rather than producing a silently empty database.
+    version = dictionary.get("v") if isinstance(dictionary, dict) else None
+    if version != FORMAT_VERSION:
+        raise ValueError(
+            f"cedict.json is format v{version!r}, expected v{FORMAT_VERSION}. "
+            "Run `npm run dict:build` to regenerate it."
+        )
+    for required in ("entries", "index"):
+        if not isinstance(dictionary.get(required), (list, dict)):
+            raise ValueError(f"cedict.json is missing its {required!r} section")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = output_path.with_suffix(".db.tmp")
@@ -28,7 +45,7 @@ def build_dictionary(input_path: Path, output_path: Path) -> None:
         connection.execute("PRAGMA temp_store=MEMORY")
         create_schema(connection)
         entry_count, lookup_count = insert_rows(connection, dictionary, source_sha256)
-        connection.execute("PRAGMA user_version=1")
+        connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         validate_database(connection, entry_count, lookup_count)
         validate_lookup_content(connection, dictionary)
         connection.execute("VACUUM")
@@ -70,44 +87,59 @@ def create_schema(connection: sqlite3.Connection) -> None:
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        -- The extension only ever looks up English -> Chinese, which lookup_keys covers. Going the
+        -- other way (Traverse gives us hanzi, we need the English) would otherwise full-scan every
+        -- entry, once per card.
+        CREATE INDEX entries_simplified ON entries(simplified);
         """
     )
 
 
 def insert_rows(
     connection: sqlite3.Connection,
-    dictionary: dict[str, list[dict]],
+    dictionary: dict,
     source_sha256: str,
 ) -> tuple[int, int]:
-    entry_ids: dict[tuple[str, str, str], int] = {}
-    next_entry_id = 1
+    """Load the normalized artifact.
+
+    Entries arrive already deduplicated and identified by array position, so this is a
+    straight copy rather than a second deduplication pass — the generator owns entry identity.
+    SQLite ids are 1-based, JSON ids are 0-based; the offset is applied here and nowhere else.
+    """
+    entries = dictionary["entries"]
+    index = dictionary["index"]
+
     entry_rows: list[tuple[int, str, str, str]] = []
+    for position, entry in enumerate(entries):
+        simplified, pinyin, definition_list = validate_entry(f"entry[{position}]", 0, entry)
+        entry_rows.append(
+            (
+                position + 1,
+                simplified,
+                pinyin,
+                json.dumps(definition_list, ensure_ascii=False, separators=(",", ":")),
+            )
+        )
+
     key_rows: list[tuple[str, int, int]] = []
     key_entry_links: set[tuple[str, int]] = set()
-
-    for key, entries in dictionary.items():
+    for key, ids in index.items():
         if not isinstance(key, str) or not key:
             raise ValueError(f"Invalid lookup key: {key!r}")
-        if not isinstance(entries, list):
-            raise ValueError(f"Invalid entries for key {key!r}: expected list")
+        if not isinstance(ids, list):
+            raise ValueError(f"Invalid index for key {key!r}: expected list")
 
-        for rank, entry in enumerate(entries):
-            simplified, pinyin, definition_list = validate_entry(key, rank, entry)
-            definitions = json.dumps(definition_list, ensure_ascii=False, separators=(",", ":"))
-            entry_key = (simplified, pinyin, definitions)
-            entry_id = entry_ids.get(entry_key)
-            if entry_id is None:
-                entry_id = next_entry_id
-                next_entry_id += 1
-                entry_ids[entry_key] = entry_id
-                entry_rows.append((entry_id, simplified, pinyin, definitions))
+        for rank, entry_id in enumerate(ids):
+            if not isinstance(entry_id, int) or not 0 <= entry_id < len(entries):
+                raise ValueError(f"Index for {key!r} rank {rank} points outside entries: {entry_id!r}")
 
-            key_entry = (key, entry_id)
+            key_entry = (key, entry_id + 1)
             if key_entry in key_entry_links:
                 raise ValueError(f"Duplicate entry for lookup key {key!r} rank {rank}")
 
             key_entry_links.add(key_entry)
-            key_rows.append((key, rank, entry_id))
+            key_rows.append((key, rank, entry_id + 1))
 
     with connection:
         connection.executemany(
@@ -121,7 +153,7 @@ def insert_rows(
         connection.executemany(
             "INSERT INTO metadata(key, value) VALUES (?, ?)",
             [
-                ("schema_version", "1"),
+                ("schema_version", str(SCHEMA_VERSION)),
                 ("source_sha256", source_sha256),
                 ("entry_count", str(len(entry_rows))),
                 ("lookup_count", str(len(key_rows))),
@@ -177,8 +209,16 @@ def validate_database(connection: sqlite3.Connection, entry_count: int, lookup_c
 
 def validate_lookup_content(
     connection: sqlite3.Connection,
-    dictionary: dict[str, list[dict]],
+    dictionary: dict,
 ) -> None:
+    """Assert the SQLite English index resolves to exactly what the JSON says.
+
+    This is what guarantees the extension and the Android app cannot drift: both read the same
+    artifact, and this check fails the build if the SQLite projection of it ever disagrees.
+    """
+    entries = dictionary["entries"]
+    index = dictionary["index"]
+
     actual: dict[str, list[tuple[str, str, list[str]]]] = {}
     rows = connection.execute(
         """
@@ -191,18 +231,24 @@ def validate_lookup_content(
     for key, simplified, pinyin, definitions in rows:
         actual.setdefault(key, []).append((simplified, pinyin, json.loads(definitions)))
 
-    if set(actual.keys()) != set(dictionary.keys()):
-        missing = set(dictionary.keys()) - set(actual.keys())
-        extra = set(actual.keys()) - set(dictionary.keys())
+    if set(actual.keys()) != set(index.keys()):
+        missing = set(index.keys()) - set(actual.keys())
+        extra = set(actual.keys()) - set(index.keys())
         raise ValueError(f"Lookup key mismatch: missing={len(missing)}, extra={len(extra)}")
 
-    for key, entries in dictionary.items():
+    for key, ids in index.items():
         expected = [
-            (entry["s"], entry["p"], entry["d"])
-            for entry in entries
+            (entries[entry_id]["s"], entries[entry_id]["p"], entries[entry_id]["d"])
+            for entry_id in ids
         ]
         if actual[key] != expected:
             raise ValueError(f"Lookup content mismatch for key {key!r}")
+
+    # Completeness is the whole point of the format change: every entry must land in SQLite,
+    # including the ones no English key reaches (needed for hanzi -> English lookup).
+    stored = connection.execute("SELECT count(*) FROM entries").fetchone()[0]
+    if stored != len(entries):
+        raise ValueError(f"Entry count mismatch: JSON has {len(entries)}, SQLite has {stored}")
 
 
 def main() -> int:
