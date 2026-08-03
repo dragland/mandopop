@@ -13,7 +13,7 @@
 
 - JS: `npm test && npm run lint`.
 - Android: `cd android && JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home" ./gradlew testDebugUnitTest buildDictionary`.
-- Room DAO queries: `./gradlew connectedDebugAndroidTest` (needs a device).
+- Room DAO queries: `./gradlew connectedDebugAndroidTest` (needs a device). It **uninstalls the app afterwards**, taking the accessibility grant, the Traverse session and the local mirror with it. Follow it with `installDebug`, then re-enable the service and sign in again — never run it last against a device in use.
 
 ## Constraints
 
