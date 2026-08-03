@@ -1,6 +1,7 @@
 package com.mandopop.service
 
 import android.accessibilityservice.AccessibilityService
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.mandopop.dictionary.DictionaryRepository
 import com.mandopop.dictionary.Normalizer
@@ -8,6 +9,7 @@ import com.mandopop.overlay.NoResultPhrases
 import com.mandopop.overlay.OverlayManager
 import com.mandopop.settings.SettingsStore
 import com.mandopop.tts.ChineseTtsManager
+import com.mandopop.work.SyncWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +23,8 @@ import kotlin.math.min
 class TextSelectionService : AccessibilityService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var debounceJob: kotlinx.coroutines.Job? = null
+    private val exitWatcher = TraverseExitWatcher()
+    private var exitSyncJob: kotlinx.coroutines.Job? = null
 
     private lateinit var dictionaryRepository: DictionaryRepository
     private lateinit var overlayManager: OverlayManager
@@ -39,6 +43,10 @@ class TextSelectionService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            handleForegroundChange(event.packageName?.toString())
+            return
+        }
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) return
 
         debounceJob?.cancel()
@@ -87,11 +95,38 @@ class TextSelectionService : AccessibilityService() {
 
     override fun onDestroy() {
         debounceJob?.cancel()
+        exitSyncJob?.cancel()
         serviceScope.cancel()
         overlayManager.dismiss()
         ttsManager.shutdown()
         dictionaryRepository.close()
         super.onDestroy()
+    }
+
+    /**
+     * Refreshes the card count shortly after the user leaves Traverse.
+     *
+     * The settle delay means a quick detour out and back costs nothing, and the shade or keyboard
+     * appearing over Traverse is filtered out by the watcher rather than here.
+     */
+    private fun handleForegroundChange(packageName: String?) {
+        val action = exitWatcher.onForegroundPackage(packageName)
+        // Window changes fire on every app switch, so only the two interesting outcomes are
+        // logged — tracing every IGNORE would bury the signal.
+        if (action != TraverseExitWatcher.Action.IGNORE) {
+            Log.i(TAG, "foreground=$packageName -> $action")
+        }
+        when (action) {
+            TraverseExitWatcher.Action.IGNORE -> Unit
+            TraverseExitWatcher.Action.CANCEL_PENDING -> exitSyncJob?.cancel()
+            TraverseExitWatcher.Action.SCHEDULE_SYNC -> {
+                exitSyncJob?.cancel()
+                exitSyncJob = serviceScope.launch {
+                    delay(EXIT_SETTLE_MS)
+                    SyncWorker.syncNow(applicationContext)
+                }
+            }
+        }
     }
 
     private suspend fun showLookup(text: String) {
@@ -161,6 +196,10 @@ class TextSelectionService : AccessibilityService() {
     }
 
     companion object {
+        private const val TAG = "MandopopExit"
         private const val DEBOUNCE_MS = 300L
+
+        /** Grace period before treating a departure from Traverse as final. */
+        private const val EXIT_SETTLE_MS = 2_000L
     }
 }

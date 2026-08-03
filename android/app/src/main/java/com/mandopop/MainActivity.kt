@@ -1,24 +1,28 @@
 package com.mandopop
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.annotation.DrawableRes
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -53,21 +57,90 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
+import com.mandopop.notification.DueNotifier
 import com.mandopop.settings.SettingsStore
+import com.mandopop.ui.BorderGreen
+import com.mandopop.ui.Cyan
+import com.mandopop.ui.HackerBlack
+import com.mandopop.ui.MutedText
+import com.mandopop.ui.NeonGreen
+import com.mandopop.ui.PaleGreen
+import com.mandopop.ui.PanelBlack
+import com.mandopop.ui.SettingsPanel
+import com.mandopop.ui.TraversePanel
+import com.mandopop.traverse.TraverseSync
+import com.mandopop.work.SyncWorker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private val settingsStore by lazy { SettingsStore(applicationContext) }
+    private val traverseSync by lazy { TraverseSync(applicationContext) }
+
+    // Sign-in posts the first notification before the permission dialog is answered, so it gets
+    // dropped. Re-post once the user grants it, otherwise nothing appears until the worker runs.
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) return@registerForActivityResult
+            lifecycleScope.launch {
+                runCatching { traverseSync.sync() }
+                    .onSuccess { DueNotifier.show(applicationContext, it) }
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15 draws every app edge-to-edge whether it opts in or not, so declare it and
+        // pad by the insets rather than letting the header slide under the status bar.
+        enableEdgeToEdge()
+
+        // Off the main thread: the signed-in check decrypts from the keystore, which is a binder
+        // round trip plus a disk read.
+        lifecycleScope.launch {
+            if (withContext(Dispatchers.IO) { traverseSync.isSignedIn }) {
+                SyncWorker.ensureScheduled(applicationContext)
+            }
+        }
+
         setContent {
             MandopopSettingsApp(
                 settingsStore = settingsStore,
+                traverseSync = traverseSync,
                 openAccessibilitySettings = {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 },
+                requestNotificationPermission = ::requestNotificationPermission,
             )
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Rebuild the notification whenever the app is opened. Cheap (local counts only) and it
+        // means a stale or swiped-away notification is never more than an app launch from correct,
+        // instead of waiting up to 15 minutes for the next periodic sync.
+        lifecycleScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    if (!traverseSync.isSignedIn) return@withContext null
+                    Triple(
+                        traverseSync.localDueCount(),
+                        traverseSync.localLiveCount(),
+                        traverseSync.localExample(),
+                    )
+                }
+            }.getOrNull()?.let { (due, live, example) ->
+                DueNotifier.repost(applicationContext, due, live, example)
+            }
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }
@@ -75,7 +148,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MandopopSettingsApp(
     settingsStore: SettingsStore,
+    traverseSync: TraverseSync,
     openAccessibilitySettings: () -> Unit,
+    requestNotificationPermission: () -> Unit,
 ) {
     val initial = remember { settingsStore.snapshot() }
     var enabled by remember { mutableStateOf(initial.enabled) }
@@ -97,6 +172,7 @@ private fun MandopopSettingsApp(
             modifier = Modifier
                 .fillMaxSize()
                 .background(HackerBlack)
+                .safeDrawingPadding()
                 .padding(20.dp),
         ) {
             Column(
@@ -216,11 +292,23 @@ private fun MandopopSettingsApp(
                     showAudio = showAudio,
                     fontSize = fontSize.roundToInt(),
                 )
+
+                TraversePanel(
+                    sync = traverseSync,
+                    requestNotificationPermission = requestNotificationPermission,
+                )
             }
         }
     }
 }
 
+/**
+ * Traverse account section.
+ *
+ * The password is held only in this composable's state long enough to exchange it for a refresh
+ * token, then cleared. Sync failures are shown here verbatim rather than summarised, because a
+ * silently stale card count is impossible to debug on a real device.
+ */
 @Composable
 private fun Header() {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -238,19 +326,6 @@ private fun Header() {
             fontFamily = FontFamily.Serif,
         )
     }
-}
-
-@Composable
-private fun SettingsPanel(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(PanelBlack, RoundedCornerShape(8.dp))
-            .border(1.dp, BorderGreen, RoundedCornerShape(8.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-        content = content,
-    )
 }
 
 @Composable
@@ -347,11 +422,3 @@ private fun PreviewCard(showAudio: Boolean, fontSize: Int) {
         }
     }
 }
-
-private val HackerBlack = Color(0xFF0A0F0A)
-private val PanelBlack = Color(0xFF0D1610)
-private val NeonGreen = Color(0xFF00FF88)
-private val Cyan = Color(0xFF00D4FF)
-private val PaleGreen = Color(0xFFE0FFE8)
-private val MutedText = Color(0xFF7AAA8A)
-private val BorderGreen = Color(0xFF1A3A2A)
