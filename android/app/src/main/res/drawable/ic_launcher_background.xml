@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fills the whole 108dp layer so the launcher mask always has opaque pixels to cut, which is what
+  stops Android from compositing the old white circle and drop shadow behind the icon.
+  A slight gradient keeps near-black from reading as a hole on dark wallpapers.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr xmlns:aapt="http://schemas.android.com/aapt" name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108"
+                android:type="linear">
+                <item android:offset="0" android:color="#FF12211A" />
+                <item android:offset="1" android:color="#FF080C09" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
