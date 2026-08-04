@@ -22,14 +22,13 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { numberedToToneMarks, extractEnglishWords, extractPhrases } from '../lib/pinyin.js';
+import { exactGlossRank } from '../lib/normalize.js';
 
 export const FORMAT_VERSION = 2;
+export { exactGlossRank };
 
 /** Cap per English key. Bounds ranking noise; does not affect `entries` completeness. */
 const MAX_ENTRIES_PER_KEY = 10;
-
-/** Leading words to ignore when testing whether a gloss *is* the English key. */
-const GLOSS_PREFIX = /^(?:to|a|an|the)\s+/;
 
 /**
  * Loads SUBTLEX-CH occurrences per million, keyed by word.
@@ -46,32 +45,6 @@ export function readFrequencies(tsv) {
     if (Number.isFinite(value)) freq.set(line.slice(0, tab), value);
   }
   return freq;
-}
-
-/**
- * Position of the sense that is exactly [key], or Infinity if none is.
- *
- * Position matters as much as presence. Common characters accumulate archaic and figurative
- * senses, so a bare "does any sense match" test promotes 门 for "school" (school *of thought*),
- * 牢 for "fast" (hold *fast*) and 走 for "run" — all real senses, none the word a learner wants.
- * A match in the leading senses means the entry genuinely means the key; a match at position 7
- * means it can also mean it.
- */
-export function exactGlossRank(entry, key) {
-  let position = 0;
-  for (const definition of entry.d) {
-    for (const sense of definition.split(';')) {
-      const normalized = sense
-        .trim()
-        .toLowerCase()
-        .replace(GLOSS_PREFIX, '')
-        .replace(/[.!?]+$/, '')
-        .trim();
-      if (normalized === key) return position;
-      position++;
-    }
-  }
-  return Infinity;
 }
 
 /** Primary meaning, secondary meaning, or merely mentions the key. */

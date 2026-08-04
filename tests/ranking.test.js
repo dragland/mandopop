@@ -17,6 +17,12 @@ describe('exactGlossRank', () => {
     expect(exactGlossRank(entry('走', 'to walk; to go', 'to run'), 'run')).toBe(2);
   });
 
+  it('ignores CC-CEDICT sense annotations', () => {
+    // Classifiers and register markers qualify a gloss; they are not part of it.
+    expect(exactGlossRank(entry('猫', 'cat (CL:隻|只[zhi1])'), 'cat')).toBe(0);
+    expect(exactGlossRank(entry('猫', '(dialect) to hide oneself', 'cat'), 'cat')).toBe(1);
+  });
+
   it('returns Infinity when the key only appears inside a longer sense', () => {
     // "two sides" contains "two" but does not mean it.
     expect(exactGlossRank(entry('二侧', 'two sides'), 'two')).toBe(Infinity);

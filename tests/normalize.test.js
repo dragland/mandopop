@@ -319,6 +319,29 @@ describe('lookup', () => {
     expect(result).toEqual(expected('ice cream'));
   });
 
+  it('skips an inflected form whose match only mentions the word', () => {
+    // CC-CEDICT glosses 哗 as "sound used to call cats", which gives "cats" a key of its own.
+    // Without the fallback that entry would beat cat -> 猫.
+    const dictionary = {
+      v: 2,
+      entries: [
+        { s: '哗', p: 'huā', d: ['clamor', '(bound form) sound used to call cats'] },
+        { s: '猫', p: 'māo', d: ['cat (CL:隻|只[zhi1])'] },
+      ],
+      index: { 'cats': [0], 'cat': [1] },
+    };
+    expect(lookup('cats', dictionary)[0].s).toBe('猫');
+  });
+
+  it('falls back to a weak match when no variant means the word', () => {
+    const dictionary = {
+      v: 2,
+      entries: [{ s: '哗', p: 'huā', d: ['sound used to call cats'] }],
+      index: { 'cats': [0] },
+    };
+    expect(lookup('cats', dictionary)[0].s).toBe('哗');
+  });
+
   it('finds phrase from inflected form (ice creams -> ice cream)', () => {
     const result = lookup('ice creams', mockDictionary);
     expect(result).toEqual(expected('ice cream'));
