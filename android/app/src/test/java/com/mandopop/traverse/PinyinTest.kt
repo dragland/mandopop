@@ -39,6 +39,21 @@ class PinyinTest {
     }
 
     @Test
+    fun `does not let a would-be contraction pass as one syllable`() {
+        // `shier` is spellable as `shie` + r, so it looked like a single contracted syllable — but
+        // 二 is not 儿, so it never contracts. It read 十二 as one `shíèr` and then took the missing
+        // syllable back by splitting `màn` into `mà` + `n` at the end of the sentence.
+        assertEquals(
+            listOf("Nà", "shí", "èr", "ge", "rén", "dōu", "hěn", "màn"),
+            align("那十二个人都很慢。", "Nà shíèr ge rén dōu hěn màn"),
+        )
+        assertEquals(
+            listOf("Shí", "èr", "yuè", "sān", "shí", "hào"),
+            align("十二月三十号", "Shíèr yuè sān shí hào"),
+        )
+    }
+
+    @Test
     fun `still gives 儿 a syllable of its own when it has one`() {
         assertEquals(listOf("ér", "zi"), align("儿子", "ér zi"))
     }

@@ -35,7 +35,11 @@ internal object Pinyin {
         "a", "o", "e", "ê", "ai", "ei", "ao", "ou", "an", "en", "ang", "eng", "ong", "er",
         "i", "ia", "ie", "iao", "iu", "ian", "in", "iang", "ing", "iong", "io",
         "u", "ua", "uo", "uai", "ui", "uan", "un", "uang", "ueng",
-        "v", "ve", "van", "vn", "n", "ng", "m",
+        // `ue` is the written form of üe after j/q/x/y and (in CC-CEDICT) after n/l: xué, yuè,
+        // jué, què, lüe, nüe. Omitting it cost 3,500+ dictionary readings and, worse, cost them
+        // *silently* — a card whose reading contained 学 or 月 simply failed to align and fell
+        // back to the dictionary, which looks the same as a card that stated no reading.
+        "ue", "v", "ve", "van", "vn", "n", "ng", "m",
     )
 
     private val SYLLABLES: Set<String> =
@@ -118,6 +122,14 @@ internal object Pinyin {
                 // out of alignment.
                 val contracted = piece in CONTRACTED &&
                     char + 1 < characters.length && characters[char + 1] == ERHUA
+                // A spelling that is only a syllable *as* a contraction has to actually contract.
+                // `shier` is `shie` + r, so without this it passed as one syllable for one
+                // character: 十二 read as a single `shíèr`, and the syllable that went missing was
+                // taken back by splitting `màn` into `mà` + `n` further along the sentence.
+                if (piece !in SYLLABLES && !contracted) {
+                    fits = false
+                    break
+                }
                 if (char + (if (contracted) 2 else 1) > characters.length) {
                     fits = false
                     break

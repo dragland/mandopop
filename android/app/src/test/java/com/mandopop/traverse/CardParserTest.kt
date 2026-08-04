@@ -17,7 +17,7 @@ class CardParserTest {
 
     private companion object {
         /** Recomputed by the failure message when extraction legitimately changes. */
-        const val EXPECTED_EXTRACTION = 1531001999
+        const val EXPECTED_EXTRACTION = -789297038
     }
 
     @Test
@@ -244,6 +244,9 @@ class CardParserTest {
             CardParser.parse("MOVIE REVIEW", doc("MOVIE REVIEW", "个", "HANZI" to "<p>个</p>", "PINYIN" to "<p>gè</p>", "KEYWORD" to "<p>Individual</p>")),
             CardParser.parse("WORD CONNECTION REVIEW", doc("WORD CONNECTION REVIEW", "一半", "WORD" to "一半", "PINYIN" to "yībàn", "MEANING" to "one half")),
             CardParser.parse("PROP REVIEW", doc("PROP REVIEW", "十（PROP）", "COMPONENT" to "十 ![](https://x.png)", "PROP" to "Toilet")),
+            // Exercises the syllable splitter, not just field addressing — the `ue` gap and the
+            // false-contraction bug both changed readings without touching the fixtures above.
+            CardParser.parse("MSLK Card", doc("MSLK Card", "Twelve months", "Chinese" to "Shíèr yuè xué xí", "Pinyin" to "十二月学习")),
         ).joinToString("|")
 
         assertEquals(
@@ -252,7 +255,7 @@ class CardParserTest {
             EXPECTED_EXTRACTION,
             extraction.hashCode(),
         )
-        assertEquals(4, CardParser.VERSION)
+        assertEquals(5, CardParser.VERSION)
     }
 
     @Test

@@ -42,7 +42,7 @@ object CardParser {
      * republishes itself across the whole deck on the next sync. This is the only mechanism that
      * repairs a card cached as unreadable — without it, a parse bug is permanent.
      */
-    const val VERSION = 4
+    const val VERSION = 5
 
     /**
      * Which fields hold what, per template.

@@ -27,11 +27,10 @@ data class ScheduleRow(
 /**
  * One `cards/{cardId}` document, before extraction.
  *
- * [fields] is the card's own named field map — `Chinese`, `Pinyin`, `English Translation`, `HANZI`
- * and so on — looked up case-insensitively, because a few cards carry both `WORD` and `Word`.
- * [strings] is the same values flattened, for [HanziExtractor]'s scan over templates nobody has
- * mapped. [template] comes from the document rather than from a schedule row: a card with two
- * prompts has two rows, and picking one of them to decide how to read the card is arbitrary.
+ * The named field map — `Chinese`, `Pinyin`, `English Translation`, `HANZI` and so on — is looked
+ * up case-insensitively, because a few cards carry both `WORD` and `Word`. [template] comes from
+ * the document rather than from a schedule row: a card with two prompts has two rows, and picking
+ * one of them to decide how to read the card is arbitrary.
  */
 data class CardDoc(
     val cardId: String,
@@ -39,8 +38,6 @@ data class CardDoc(
     val template: String?,
     private val namedFields: Map<String, String>,
 ) {
-    val strings: List<String> get() = namedFields.values.toList()
-
     /** First non-blank value among [keys], or null. */
     fun field(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
         namedFields[key.lowercase()]?.takeIf { it.isNotBlank() }
