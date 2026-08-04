@@ -13,6 +13,7 @@
 
 - JS: `npm test && npm run lint`.
 - Android: `cd android && JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home" ./gradlew testDebugUnitTest lintDebug buildDictionary compileDebugAndroidTestKotlin`. `lintDebug` is green; keep it that way. It fails the build on errors, so a permission check has to be inline where lint can follow it rather than extracted into a helper. The instrumentation sources only compile as part of the last task — they are easy to break without noticing.
+- `adb shell am force-stop com.mandopop` **revokes the accessibility grant** — the app comes back showing "Finish setup" and lookups are dead until it is re-enabled by hand. To restart for a test, launch the activity again or reinstall; never force-stop.
 - Room DAO queries and migrations: `./gradlew connectedDebugAndroidTest` (needs a device). It **uninstalls the app afterwards**, taking the accessibility grant, the Traverse session and the local mirror with it. Follow it with `installDebug`, then re-enable the service and sign in again — never run it last against a device in use, and back the database up first (`adb exec-out run-as com.mandopop cat databases/mandopop.db > backup.db`) now that refilling it costs ~940 remote reads.
 
 ## Constraints
