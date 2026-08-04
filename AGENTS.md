@@ -41,6 +41,8 @@
 - Most cards hide their hanzi behind an opaque id in a `fields` map whose keys vary by template, so `HanziExtractor` scans all strings for CJK and lets CC-CEDICT arbitrate. Do not hardcode field names.
 - ACTOR and SET cards teach a pinyin sound and have no headword — extracting from them scrapes incidental hanzi out of mnemonics. PROP cards are *not* excluded: 一 and 十 are components and real words.
 - Card content resolves only for cards that are due, bounded per sync. Immersion features will need a wider sweep.
+- A window event naming Traverse is **not** evidence the user returned to it — Traverse re-announces its window about a second after being backgrounded, every time. `TraverseExitWatcher` therefore only reports *leaving*; whether the user is back is decided by checking `rootInActiveWindow` when the settle timer fires. Cancelling on the event instead silently killed every on-exit sync.
+- Swiping the due notification away forces a full pull, and is the only refresh gesture outside the settings screen. Unforced syncs are gated on the events heartbeat, which cannot see rescheduling or unsuspended lessons.
 - Room is a cache of remote state; destructive migration is intentional and the next sync refills.
 - Token storage is Tink + DataStore. `EncryptedSharedPreferences` is deprecated — do not "simplify" back to it.
 

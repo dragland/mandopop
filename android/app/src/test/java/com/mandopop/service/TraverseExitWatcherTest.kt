@@ -10,7 +10,7 @@ class TraverseExitWatcherTest {
 
     @Test
     fun `leaving Traverse for another app schedules a sync`() {
-        assertEquals(Action.CANCEL_PENDING, watcher.onForegroundPackage(traverse))
+        assertEquals(Action.IGNORE, watcher.onForegroundPackage(traverse))
         assertEquals(Action.SCHEDULE_SYNC, watcher.onForegroundPackage("com.android.chrome"))
     }
 
@@ -24,8 +24,9 @@ class TraverseExitWatcherTest {
     fun `pulling the shade over Traverse is not leaving`() {
         watcher.onForegroundPackage(traverse)
         assertEquals(Action.IGNORE, watcher.onForegroundPackage("com.android.systemui"))
-        // Still considered inside, so the shade closing is just a re-entry.
-        assertEquals(Action.CANCEL_PENDING, watcher.onForegroundPackage(traverse))
+        // Still considered inside, so closing the shade is a no-op rather than a fresh exit.
+        assertEquals(Action.IGNORE, watcher.onForegroundPackage(traverse))
+        assertEquals(Action.SCHEDULE_SYNC, watcher.onForegroundPackage("com.android.chrome"))
     }
 
     @Test
@@ -39,10 +40,14 @@ class TraverseExitWatcherTest {
     }
 
     @Test
-    fun `returning to Traverse cancels a pending sync`() {
+    fun `a Traverse window event after leaving never revokes the scheduled sync`() {
+        // Traverse re-announces its window about a second after being backgrounded, on every
+        // exit. Reading that as "the user came back" cancelled the settle timer every time, so
+        // the count only ever refreshed on the periodic run. Whether the user is really back is
+        // settled by the caller checking the active window when the timer fires, not here.
         watcher.onForegroundPackage(traverse)
         assertEquals(Action.SCHEDULE_SYNC, watcher.onForegroundPackage("com.android.chrome"))
-        assertEquals(Action.CANCEL_PENDING, watcher.onForegroundPackage(traverse))
+        assertEquals(Action.IGNORE, watcher.onForegroundPackage(traverse))
     }
 
     @Test

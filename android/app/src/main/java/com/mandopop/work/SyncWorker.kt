@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.mandopop.notification.DueNotifier
 import com.mandopop.traverse.SyncOutcome
 import com.mandopop.traverse.TraverseSync
@@ -19,7 +20,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
     override suspend fun doWork(): Result {
         val sync = TraverseSync(applicationContext)
-        val outcome = sync.sync()
+        val outcome = sync.sync(force = inputData.getBoolean(KEY_FORCE, false))
         DueNotifier.show(applicationContext, outcome)
 
         return when {
@@ -39,6 +40,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     companion object {
         private const val PERIODIC_NAME = "traverse-sync-periodic"
         private const val ONE_SHOT_NAME = "traverse-sync-now"
+        private const val KEY_FORCE = "force"
 
         /**
          * 15 minutes is WorkManager's periodic floor. Doze will stretch it, which is fine — the
@@ -62,12 +64,16 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
         /**
-         * One-off sync, used when we have a reason to believe something just changed (currently:
-         * the user left the Traverse app). Cheap — the events heartbeat means this is usually a
-         * single Firestore document read.
+         * One-off sync, used when we have a reason to believe something just changed.
+         *
+         * Unforced (leaving Traverse) it is usually a single Firestore document read, because the
+         * events heartbeat gates the deck pull. [force] skips that gate and pulls regardless,
+         * which is the point of the notification-swipe path: the heartbeat cannot see every kind
+         * of change, so there has to be one gesture that just refetches.
          */
-        fun syncNow(context: Context) {
+        fun syncNow(context: Context, force: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setInputData(workDataOf(KEY_FORCE to force))
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)

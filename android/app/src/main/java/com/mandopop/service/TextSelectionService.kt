@@ -106,18 +106,27 @@ class TextSelectionService : AccessibilityService() {
      */
     private fun handleForegroundChange(packageName: String?) {
         val action = exitWatcher.onForegroundPackage(packageName)
-        // Window changes fire on every app switch, so only the two interesting outcomes are
-        // logged — tracing every IGNORE would bury the signal.
+        // Window changes fire on every app switch, so only the interesting outcome is logged —
+        // tracing every IGNORE would bury the signal.
         if (action != TraverseExitWatcher.Action.IGNORE) {
             Log.i(TAG, "foreground=$packageName -> $action")
         }
         when (action) {
             TraverseExitWatcher.Action.IGNORE -> Unit
-            TraverseExitWatcher.Action.CANCEL_PENDING -> exitSyncJob?.cancel()
             TraverseExitWatcher.Action.SCHEDULE_SYNC -> {
                 exitSyncJob?.cancel()
                 exitSyncJob = serviceScope.launch {
                     delay(EXIT_SETTLE_MS)
+                    // Where the user actually is once the dust settles, rather than what the
+                    // window events claimed on the way out. Traverse re-announces its window about
+                    // a second after being backgrounded, so cancelling on that signal — which is
+                    // what this used to do — killed every pending sync before it could fire.
+                    val active = rootInActiveWindow?.packageName?.toString()
+                    if (active == TraverseExitWatcher.TRAVERSE_PACKAGE) {
+                        Log.i(TAG, "back in Traverse at settle; skipping sync")
+                        return@launch
+                    }
+                    Log.i(TAG, "left Traverse (now $active); syncing")
                     SyncWorker.syncNow(applicationContext)
                 }
             }
@@ -189,7 +198,12 @@ class TextSelectionService : AccessibilityService() {
         private const val TAG = "MandopopExit"
         private const val DEBOUNCE_MS = 300L
 
-        /** Grace period before treating a departure from Traverse as final. */
-        private const val EXIT_SETTLE_MS = 2_000L
+        /**
+         * Grace period before treating a departure from Traverse as final.
+         *
+         * Also gives Traverse time to flush the day's events document, which is the heartbeat an
+         * unforced sync reads to decide whether the deck is worth pulling.
+         */
+        private const val EXIT_SETTLE_MS = 5_000L
     }
 }

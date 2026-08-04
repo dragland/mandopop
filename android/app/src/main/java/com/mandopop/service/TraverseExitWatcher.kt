@@ -12,6 +12,12 @@ package com.mandopop.service
  *    window change for SystemUI or the IME while Traverse is still the app in use.
  *  - **Brief detours.** Tapping a link and coming straight back should not fire a sync each way,
  *    hence the caller-driven settle delay.
+ *
+ * Crucially, a Traverse window event is *not* evidence the user came back. Traverse re-announces
+ * its window roughly a second after being backgrounded — reproducibly, on every exit — so treating
+ * that as a return cancelled the pending sync every single time and the count never refreshed.
+ * Whether the user is really back is a question about where they are when the timer fires, which
+ * only the caller can answer, so this watcher no longer tries to.
  */
 class TraverseExitWatcher {
 
@@ -24,9 +30,6 @@ class TraverseExitWatcher {
 
         /** Left Traverse — start (or restart) the settle timer before syncing. */
         SCHEDULE_SYNC,
-
-        /** Back in Traverse — cancel any pending settle timer. */
-        CANCEL_PENDING,
     }
 
     fun onForegroundPackage(packageName: String?): Action {
@@ -35,7 +38,7 @@ class TraverseExitWatcher {
 
         if (packageName == TRAVERSE_PACKAGE) {
             insideTraverse = true
-            return Action.CANCEL_PENDING
+            return Action.IGNORE
         }
 
         if (!insideTraverse) return Action.IGNORE
