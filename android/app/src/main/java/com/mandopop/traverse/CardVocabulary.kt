@@ -11,10 +11,9 @@ import kotlinx.coroutines.delay
 /**
  * Recovers what each Traverse card teaches, and caches it.
  *
- * Most cards identify themselves by an opaque id rather than by hanzi, so the characters have to
- * come from the card document. [CardParser] reads the templates we understand; anything else falls
- * back to scanning for Han and letting CC-CEDICT arbitrate, since dictionary membership is what
- * separates a real word from a mnemonic prop.
+ * Cards identify themselves by an opaque id rather than by hanzi, so the content has to come from
+ * the card document, where [CardParser] reads it by field name. CC-CEDICT then decides whether what
+ * came back is a headword or an utterance.
  */
 class CardVocabulary(
     private val firestore: FirestoreRest,
@@ -111,13 +110,12 @@ class CardVocabulary(
         val parsed = CardParser.parse(card.template, doc)
         if (parsed.hanzi == null) return blank
 
-        // A sentence is not a headword, so it gets no dictionary gloss — its translation is on
-        // the card, and its individual words are recovered later by segmentation.
-        val entries = if (parsed.isSentence) {
-            emptyList()
-        } else {
-            dictionary.lookupBySimplified(parsed.hanzi, limit = MAX_READINGS)
-        }
+        // Whether this is a headword or an utterance is decided by CC-CEDICT, not by length or by
+        // template. Both heuristics were wrong in opposite directions: MSLK was marked "always a
+        // sentence" and 知道 is a word, while 他很快吗 is four characters and is not. Dictionary
+        // membership is the property that actually matters downstream — it is exactly what decides
+        // whether the notification can prompt with it and Reveal can look it up.
+        val entries = dictionary.lookupBySimplified(parsed.hanzi, limit = MAX_READINGS)
         return CardContentEntity(
             cardId = card.cardId,
             hanzi = parsed.hanzi,
@@ -125,7 +123,7 @@ class CardVocabulary(
             english = parsed.english ?: entries.takeIf { it.isNotEmpty() }?.let(::formatGloss),
             fetchedAtMs = now,
             parserVersion = CardParser.VERSION,
-            isSentence = parsed.isSentence,
+            isSentence = entries.isEmpty(),
         )
     }
 

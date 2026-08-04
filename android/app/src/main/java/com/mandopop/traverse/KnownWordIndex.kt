@@ -62,12 +62,17 @@ class KnownWordIndex(
         // One batched query rather than one per word, for the same reason as the membership pass:
         // several hundred point lookups is round-trip cost with nothing to show for it.
         val entries = dictionary.entriesBySimplified(words.keys, limitPerWord = MAX_READINGS)
-        val rows = words.values.map { draft ->
-            val entry = preferredEntry(entries[draft.hanzi].orEmpty(), draft.pinyin)
+        val rows = words.values.mapNotNull { draft ->
+            // No dictionary entry, no row. Not a judgement about what the user knows — it is that
+            // the index is only ever queried English-first (ask CC-CEDICT for candidates, keep the
+            // ones in here), so something the dictionary has never heard of cannot be reached
+            // through the only path this table exists for. In practice this is the handful of bare
+            // strokes and components that PROP cards teach: ㇉, ㇏, 乚.
+            val entry = preferredEntry(entries[draft.hanzi].orEmpty(), draft.pinyin) ?: return@mapNotNull null
             KnownWordEntity(
                 hanzi = draft.hanzi,
-                pinyin = draft.pinyin ?: entry?.pinyin,
-                english = entry?.definitions?.take(MAX_SENSES)?.joinToString("; "),
+                pinyin = draft.pinyin ?: entry.pinyin,
+                english = entry.definitions.take(MAX_SENSES).joinToString("; "),
                 source = draft.source,
             )
         }

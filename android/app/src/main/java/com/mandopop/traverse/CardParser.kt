@@ -11,10 +11,9 @@ data class ParsedCard(
     val hanzi: String?,
     val pinyin: String?,
     val english: String?,
-    val isSentence: Boolean,
 ) {
     companion object {
-        val EMPTY = ParsedCard(null, null, null, isSentence = false)
+        val EMPTY = ParsedCard(null, null, null)
     }
 }
 
@@ -43,7 +42,7 @@ object CardParser {
      * republishes itself across the whole deck on the next sync. This is the only mechanism that
      * repairs a card cached as unreadable — without it, a parse bug is permanent.
      */
-    const val VERSION = 3
+    const val VERSION = 4
 
     /**
      * Which fields hold what, per template.
@@ -56,7 +55,6 @@ object CardParser {
         val written: Array<String>,
         val spoken: Array<String>,
         val meaning: Array<String>,
-        val alwaysSentence: Boolean = false,
     )
 
     private val LAYOUTS = mapOf(
@@ -64,9 +62,6 @@ object CardParser {
             written = arrayOf("Chinese", "Pinyin"),
             spoken = arrayOf("Pinyin", "Chinese"),
             meaning = arrayOf("English Translation", "English"),
-            // Always, even for a one-word phrase: MSLK teaches the utterance, and its English is a
-            // sentence translation rather than a headword gloss.
-            alwaysSentence = true,
         ),
         "Cloze" to Layout(
             written = arrayOf("Characters"),
@@ -118,12 +113,10 @@ object CardParser {
             .firstOrNull { !ChineseText.hasHan(it) }
             ?.let(ChineseText::stripMarkup)
 
-        val characters = ChineseText.hanOnly(hanzi).length
         return ParsedCard(
             hanzi = hanzi,
             pinyin = Pinyin.align(hanzi, reading)?.filter { it.isNotBlank() }?.joinToString(" "),
             english = doc.field(*layout.meaning)?.let(ChineseText::stripMarkup),
-            isSentence = layout.alwaysSentence || characters > Segmenter.MAX_WORD_LENGTH,
         )
     }
 
@@ -132,7 +125,7 @@ object CardParser {
      * and not others (`/Mandarin_Blueprint/MSLK Card` vs `MSLK Card`).
      *
      * ACTOR and SET are absent deliberately — they teach a pinyin sound and are excluded before
-     * the fetch. Anything else falls through to [HanziExtractor]'s scan.
+     * the fetch. Anything else yields nothing, which the coverage readout names.
      */
     private fun layoutFor(template: String): Layout? =
         LAYOUTS.entries.firstOrNull { template.contains(it.key, ignoreCase = true) }?.value

@@ -17,7 +17,7 @@ class CardParserTest {
 
     private companion object {
         /** Recomputed by the failure message when extraction legitimately changes. */
-        const val EXPECTED_EXTRACTION = -2114505225
+        const val EXPECTED_EXTRACTION = 1531001999
     }
 
     @Test
@@ -39,7 +39,6 @@ class CardParserTest {
         assertEquals("你没有吃东西，对不对？", parsed.hanzi)
         assertEquals("Nǐ méi yǒu chī dōng xi duì bu duì", parsed.pinyin)
         assertEquals("You didn't eat anything, right?", parsed.english)
-        assertTrue(parsed.isSentence)
     }
 
     @Test
@@ -102,7 +101,6 @@ class CardParserTest {
         assertEquals("明天", parsed.hanzi)
         assertEquals("míng tiān", parsed.pinyin)
         assertEquals("tomorrow", parsed.english)
-        assertFalse(parsed.isSentence)
     }
 
     @Test
@@ -119,7 +117,6 @@ class CardParserTest {
         )
 
         assertEquals("chī fàn le ma chī le", parsed.pinyin)
-        assertTrue(parsed.isSentence)
     }
 
     @Test
@@ -255,7 +252,7 @@ class CardParserTest {
             EXPECTED_EXTRACTION,
             extraction.hashCode(),
         )
-        assertEquals(3, CardParser.VERSION)
+        assertEquals(4, CardParser.VERSION)
     }
 
     @Test
