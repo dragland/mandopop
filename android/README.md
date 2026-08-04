@@ -49,8 +49,10 @@ cd android
 After install, enable the service manually:
 
 1. Open Mandopop.
-2. Tap `Open Accessibility Settings`.
-3. Enable `Mandopop`.
+2. Tap `Turn on Mandopop` on the setup card.
+3. Enable `Mandopop` in the list.
+
+The setup card is replaced by a `Ready` line once the service is on.
 
 On recent Android versions, sideloaded accessibility services may be
 blocked by Restricted Settings. If Mandopop is disabled or cannot be toggled on,
@@ -73,8 +75,8 @@ mirrors their spaced-repetition state locally, driving an ongoing "cards due tod
 notification and supplying the vocabulary the user actually knows.
 
 Sign in from the app's settings screen. The password is exchanged once for a refresh
-token, which is stored encrypted under an AndroidKeyStore key; the password itself is
-never persisted. Sign Out clears the token, the local mirror, and the notification.
+token, which Tink encrypts under an Android Keystore master key before it is written to
+DataStore; the password itself is never persisted. Sign Out clears the token, the local mirror, and the notification.
 
 - Syncs on a periodic worker, on leaving the Traverse app, on app open, and after an
   app update. A routine sync is one Firestore read — the full deck is pulled only when
@@ -95,12 +97,13 @@ needed to build or run this repo.
 
 Settings defaults:
 
-- `Enable Lookups`: on. Soft-disables selection handling without disabling the
-  Android accessibility service.
-- `Audio Button`: on. Shows the pronunciation button in result cards.
-- `Playful Misses`: on. Unknown selections show a random Mandarin miss card;
+- `Lookups`: on. Pauses selection handling without disabling the Android
+  accessibility service, which is buried in system settings. The status card
+  reads `Paused` while it is off.
+- `Pronunciation`: on. Shows the pronunciation button in result cards.
+- `Playful misses`: on. Unknown selections show a random Mandarin miss card;
   turning this off makes unknown selections dismiss silently.
-- `Chinese Size`: 24sp by default.
+- `Hanzi size`: 24sp by default.
 
 ## Manual Smoke Test
 
@@ -117,7 +120,7 @@ After each install on a test device:
    characters; confirm the overlay dismisses or stays hidden.
 5. Tap outside the card, switch apps, rotate the phone, and disable the service;
    confirm no stale overlay remains.
-6. Toggle `Enable Lookups`, `Audio Button`, `Playful Misses`, and Chinese font
+6. Toggle `Lookups`, `Pronunciation`, `Playful misses`, and hanzi font
    size; reselect text and confirm the overlay follows the saved setting.
 7. Tap pronunciation repeatedly and confirm speech starts, restarts, and stops
    cleanly when the service is disabled.

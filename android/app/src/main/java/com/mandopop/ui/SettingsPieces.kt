@@ -61,8 +61,15 @@ internal fun SectionLabel(text: String) {
  * instead of continuing to shout.
  */
 @Composable
-internal fun ServiceStatusCard(serviceEnabled: Boolean, onOpenSettings: () -> Unit) {
+internal fun ServiceStatusCard(
+    serviceEnabled: Boolean,
+    lookupsEnabled: Boolean,
+    onOpenSettings: () -> Unit,
+) {
     if (serviceEnabled) {
+        // Both conditions have to hold, or the card would claim "Ready" while lookups are off —
+        // the same lie about state it exists to prevent.
+        val paused = !lookupsEnabled
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -71,9 +78,18 @@ internal fun ServiceStatusCard(serviceEnabled: Boolean, onOpenSettings: () -> Un
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("●", color = NeonGreen, fontSize = 12.sp)
+            Text("●", color = if (paused) MutedText else NeonGreen, fontSize = 12.sp)
             Spacer(Modifier.width(12.dp))
-            Text("Ready", color = PaleGreen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = if (paused) "Paused" else "Ready",
+                color = PaleGreen,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (paused) {
+                Spacer(Modifier.width(10.dp))
+                Text("Lookups are off", color = MutedText, fontSize = 13.sp)
+            }
         }
         return
     }

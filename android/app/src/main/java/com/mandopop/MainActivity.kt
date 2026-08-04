@@ -222,6 +222,7 @@ private fun MandopopSettingsApp(
 
                 ServiceStatusCard(
                     serviceEnabled = serviceEnabled,
+                    lookupsEnabled = enabled,
                     onOpenSettings = openAccessibilitySettings,
                 )
 
@@ -229,7 +230,7 @@ private fun MandopopSettingsApp(
                 SettingsPanel {
                     ToggleRow(
                         icon = R.drawable.ic_translate,
-                        label = "Show lookups",
+                        label = "Lookups",
                         supporting = "Pop up a card when you select English text",
                         checked = enabled,
                         onCheckedChange = {
