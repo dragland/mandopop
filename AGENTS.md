@@ -50,6 +50,8 @@
 - Popup role is `status`, not `tooltip`, because it has buttons.
 - Keep pinyin inline with characters; show definitions only when multiple matches.
 - Do not darken contrast below current values: defs `#888` on `#0d0d0d`, icons `#999` on `#1a1a1a`.
+- The settings screen leads with whether lookups actually work, read from `ENABLED_ACCESSIBILITY_SERVICES` on each resume (no callback exists). Without it the app looks identical whether or not it is functional — do not reduce this back to a plain "open settings" button.
+- Every toggle carries supporting text. Labels alone cannot explain "Playful misses".
 - The due notification shows characters only; the reading and meaning sit behind Reveal. Showing them upfront defeats recall practice.
 - `setOngoing(true)` does not prevent dismissal on Android 14+. Persistence is the `deleteIntent` re-post, which stops at zero due.
 - A posted notification stores its icon as a bare resource id, and adding drawables shifts ids — hence the re-post on `MY_PACKAGE_REPLACED`.

@@ -1,6 +1,8 @@
 package com.mandopop.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -61,6 +63,9 @@ internal fun TraversePanel(
     var status by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var dueCount by remember { mutableIntStateOf(-1) }
+    // Optional and advanced, so it stays folded away until asked for — but opens itself if the
+    // link needs attention, since a silent broken sync is worse than a bit of clutter.
+    var expanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (!sync.isSignedIn()) return@LaunchedEffect
@@ -72,10 +77,16 @@ internal fun TraversePanel(
             error = sync.state().lastError
             dueCount = sync.localDueCount()
         }
+        if (error != null) expanded = true
     }
 
     SettingsPanel {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Icon(
                 painter = painterResource(R.drawable.ic_translate),
                 contentDescription = null,
@@ -83,21 +94,44 @@ internal fun TraversePanel(
                 modifier = Modifier.size(22.dp),
             )
             Spacer(Modifier.width(12.dp))
-            Text(
-                text = "Traverse Account",
-                color = PaleGreen,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Mandarin Blueprint",
+                    color = PaleGreen,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = when {
+                        error != null -> "Needs attention"
+                        signedIn && dueCount >= 0 -> "Linked · $dueCount due today"
+                        signedIn -> "Linked"
+                        else -> "Not linked"
+                    },
+                    color = if (error != null) ErrorRed else MutedText,
+                    fontSize = 12.sp,
+                )
+            }
             if (busy) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
                     color = NeonGreen,
                     strokeWidth = 2.dp,
                 )
+            } else {
+                Text(if (expanded) "\u2303" else "\u2304", color = MutedText, fontSize = 16.sp)
             }
         }
+
+        if (!expanded) return@SettingsPanel
+
+        Text(
+            text = "Track which words you already know and see what is due today. " +
+                "Signs in through Traverse, where the course lives.",
+            color = MutedText,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+        )
 
         if (signedIn) {
             Text(
@@ -106,14 +140,6 @@ internal fun TraversePanel(
                 fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace,
             )
-            if (dueCount >= 0) {
-                Text(
-                    text = "$dueCount due today",
-                    color = NeonGreen,
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
-                )
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = {
