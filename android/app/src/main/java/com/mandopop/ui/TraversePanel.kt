@@ -100,24 +100,24 @@ internal fun TraversePanel(
                 modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)),
             )
             Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = "Mandarin Blueprint",
-                    color = PaleGreen,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = when {
-                        error != null -> "Needs attention"
-                        signedIn && dueCount >= 0 -> "Linked · $dueCount due today"
-                        signedIn -> "Linked"
-                        else -> "Not linked"
-                    },
-                    color = if (error != null) ErrorRed else MutedText,
-                    fontSize = 12.sp,
-                )
-            }
+            Text(
+                text = "Mandarin Blueprint",
+                color = PaleGreen,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = when {
+                    error != null -> "Needs attention"
+                    signedIn && dueCount >= 0 -> "$dueCount due today"
+                    signedIn -> "Linked"
+                    else -> "Not linked"
+                },
+                color = if (error != null) ErrorRed else MutedText,
+                fontSize = 12.sp,
+            )
+            Spacer(Modifier.width(10.dp))
             if (busy) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
@@ -134,8 +134,8 @@ internal fun TraversePanel(
         LaunchedEffect(expanded) { revealed.bringIntoView() }
 
         Text(
-            text = "Track which words you already know and see what is due today. " +
-                "Signs in through Traverse, where the course lives.",
+            // The form below already says Traverse, so this only needs to say what syncing buys.
+            text = "Sync course progress and spaced-repetition cards.",
             color = MutedText,
             fontSize = 12.sp,
             lineHeight = 17.sp,
