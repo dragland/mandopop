@@ -75,7 +75,7 @@ object Segmenter {
      * The syllables sitting over [segment]'s own characters.
      *
      * This is why a segmented sentence yields real readings rather than dictionary guesses: the
-     * card states the whole sentence's pinyin, and [ChineseText.alignReadings] has already laid it
+     * card states the whole sentence's pinyin, and [Pinyin.align] has already laid it
      * out one entry per character, so a word inside it can simply take its own slice. Pass the
      * aligned list, never raw syllables — an unchecked reading would shift every word after a
      * mismatch, and erhua would shift everything after it.

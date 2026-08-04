@@ -24,12 +24,37 @@ data class ScheduleRow(
     val lapses: Int,
 )
 
-/** Raw strings from one `cards/{cardId}` document, before hanzi extraction. */
+/**
+ * One `cards/{cardId}` document, before extraction.
+ *
+ * [fields] is the card's own named field map — `Chinese`, `Pinyin`, `English Translation`, `HANZI`
+ * and so on — looked up case-insensitively, because a few cards carry both `WORD` and `Word`.
+ * [strings] is the same values flattened, for [HanziExtractor]'s scan over templates nobody has
+ * mapped. [template] comes from the document rather than from a schedule row: a card with two
+ * prompts has two rows, and picking one of them to decide how to read the card is arbitrary.
+ */
 data class CardDoc(
     val cardId: String,
     val title: String?,
-    val strings: List<String>,
-)
+    val template: String?,
+    private val namedFields: Map<String, String>,
+) {
+    val strings: List<String> get() = namedFields.values.toList()
+
+    /** First non-blank value among [keys], or null. */
+    fun field(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+        namedFields[key.lowercase()]?.takeIf { it.isNotBlank() }
+    }
+
+    companion object {
+        fun of(
+            cardId: String,
+            title: String?,
+            template: String?,
+            fields: Map<String, String>,
+        ) = CardDoc(cardId, title, template, fields.mapKeys { it.key.lowercase() })
+    }
+}
 
 class FirestoreRest(private val auth: TraverseAuth) {
 
@@ -141,18 +166,40 @@ class FirestoreRest(private val auth: TraverseAuth) {
             val cardId = FirestoreValues.documentId(found.optString("name")) ?: continue
             val fields = found.optJSONObject("fields")
             if (fields == null) {
-                into[cardId] = CardDoc(cardId, null, emptyList())
+                into[cardId] = CardDoc.of(cardId, null, null, emptyMap())
                 continue
             }
-            val strings = mutableListOf<String>()
-            collectStrings(fields, strings, depth = 0)
-            into[cardId] = CardDoc(
+            // The card's content lives one level down, in its own `fields` map; the outer level is
+            // Traverse's own bookkeeping (notes, reviews, graph links).
+            val content = fields.optJSONObject("fields")?.optJSONObject("mapValue")
+                ?.optJSONObject("fields")
+            into[cardId] = CardDoc.of(
                 cardId = cardId,
                 title = FirestoreValues.string(fields, "title")
                     ?: FirestoreValues.string(fields, "id"),
-                strings = strings,
+                template = FirestoreValues.string(fields, "template"),
+                fields = content?.let(::readNamedFields).orEmpty(),
             )
         }
+    }
+
+    /**
+     * The card's named content fields, flattened to one string each.
+     *
+     * A field is nearly always a plain string; the nested walk is kept for the handful that wrap
+     * their value, so a field never reads as empty just because it was stored one level deeper.
+     */
+    private fun readNamedFields(content: JSONObject): Map<String, String> {
+        val fields = mutableMapOf<String, String>()
+        for (key in content.keys()) {
+            val value = content.optJSONObject(key) ?: continue
+            val text = value.optString("stringValue").takeIf { it.isNotBlank() }
+                ?: mutableListOf<String>().also { collectStrings(
+                    JSONObject().put(key, value), it, depth = 0,
+                ) }.joinToString(" ").takeIf { it.isNotBlank() }
+            if (text != null) fields[key] = text
+        }
+        return fields
     }
 
     /** Walks the Firestore typed-value tree gathering every `stringValue`. */

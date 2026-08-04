@@ -84,7 +84,7 @@ class KnownWordIndex(
      * Folds one card's words into [into].
      *
      * A word inside a sentence takes the syllables sitting over its own characters — the card's
-     * reading, not a dictionary guess — which works because [ChineseText.alignReadings] re-checks
+     * reading, not a dictionary guess — which works because [Pinyin.align] re-checks
      * the reading against the characters before handing out any of it.
      */
     private fun collect(
@@ -95,7 +95,7 @@ class KnownWordIndex(
         if (segments.isEmpty()) return
         val text = card.hanzi ?: return
         val source = if (segments.size == 1) TAUGHT else SENTENCE
-        val readings = ChineseText.alignReadings(text, card.pinyin)
+        val readings = Pinyin.align(text, card.pinyin)
 
         for (segment in segments) {
             val reading = Segmenter.readingFor(segment, readings)

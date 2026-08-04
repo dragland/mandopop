@@ -285,13 +285,17 @@ abstract class MandopopDatabase : RoomDatabase() {
                     "mandopop.db",
                 )
                     .addMigrations(MIGRATION_2_3)
-                    // Scoped to the versions that really were disposable. A blanket fallback also
-                    // covers *downgrades*, so flashing an older build while debugging would drop
-                    // the content cache and cost ~940 reads on Traverse's project to rebuild — and
-                    // from v3 on, a bump with no migration would do the same silently. Now both
-                    // throw at open instead, which is recoverable by reinstalling and impossible
-                    // to miss.
-                    .fallbackToDestructiveMigrationFrom(1, 2)
+                    // Scoped to version 1, the only one that really was disposable. A blanket
+                    // fallback also covers *downgrades*, so flashing an older build while
+                    // debugging would drop the content cache and cost ~940 reads on Traverse's
+                    // project to rebuild — and from v3 on, a bump with no migration would do the
+                    // same silently. Both now throw at open instead: recoverable by reinstalling,
+                    // and impossible to miss.
+                    //
+                    // Not `(1, 2)`. Listing a version that a registered migration *starts* from
+                    // makes Room reject the builder outright — `IllegalArgumentException` at first
+                    // database access, which here means the app dies on launch.
+                    .fallbackToDestructiveMigrationFrom(1)
                     .build()
                     .also { instance = it }
             }

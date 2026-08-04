@@ -4,8 +4,8 @@ package com.mandopop.traverse
  * What a card turned out to say.
  *
  * [hanzi] is the text as the card writes it — a word for most templates, a whole sentence for MSLK.
- * [pinyin] and [english] are only set when the card states them *unambiguously*; a null means "ask
- * the dictionary", never "this card has no reading".
+ * [pinyin] and [english] come from the card when it states them and it can be shown they belong to
+ * [hanzi]; null means "ask the dictionary", never "this card has no reading".
  */
 data class ParsedCard(
     val hanzi: String?,
@@ -21,14 +21,18 @@ data class ParsedCard(
 /**
  * Reads a card according to its template.
  *
- * The generic "scan every string for Han and let CC-CEDICT arbitrate" pass was the right call while
- * the schema was unknown, and it still backstops the templates below. But it throws away everything
- * the card knows: MSLK carries the sentence's full reading and translation, PM Cloze carries the
- * syllables as the answer to its own blank, and MOVIE carries a keyword. Recovering those beats
- * inferring them — the dictionary cannot tell which sense of 东西 a card meant, and the card can.
+ * Cards carry named fields — `Chinese`, `Pinyin`, `English Translation`, `HANZI`, `KEYWORD` — so
+ * this addresses them by name. A renamed field then yields nothing at all for that template, which
+ * the parse-rate guard turns into a visible error, rather than quietly reading the wrong string.
  *
- * A reading is only ever accepted when its syllable count matches the character count. That is what
- * keeps shape-based field detection honest: a misidentified string almost never lines up.
+ * **Names locate the pair; shape decides which is which.** On MSLK cards the course has `Chinese`
+ * and `Pinyin` swapped — and not consistently: 130 of 160 sampled cards hold the hanzi under
+ * `Pinyin`, the other 30 under `Chinese`. Trusting either name would get most of the deck exactly
+ * backwards, so the field holding Han characters is the Chinese whatever it is called.
+ *
+ * A reading is only kept if [Pinyin.align] can lay it out one syllable per character. That is a
+ * complete check rather than a heuristic, and it is what makes a word cut out of a sentence able
+ * to take its own syllables instead of a dictionary guess.
  */
 object CardParser {
 
@@ -39,7 +43,54 @@ object CardParser {
      * republishes itself across the whole deck on the next sync. This is the only mechanism that
      * repairs a card cached as unreadable — without it, a parse bug is permanent.
      */
-    const val VERSION = 1
+    const val VERSION = 2
+
+    /**
+     * Which fields hold what, per template.
+     *
+     * [written] and [spoken] are candidates for the *pair*, not assignments — see the class note on
+     * the MSLK swap. Aliases exist because a few cards carry both `WORD` and `Word`; lookup is
+     * case-insensitive, so these only cover genuinely different names.
+     */
+    private data class Layout(
+        val written: Array<String>,
+        val spoken: Array<String>,
+        val meaning: Array<String>,
+        val alwaysSentence: Boolean = false,
+    )
+
+    private val LAYOUTS = mapOf(
+        "MSLK" to Layout(
+            written = arrayOf("Chinese", "Pinyin"),
+            spoken = arrayOf("Pinyin", "Chinese"),
+            meaning = arrayOf("English Translation", "English"),
+            // Always, even for a one-word phrase: MSLK teaches the utterance, and its English is a
+            // sentence translation rather than a headword gloss.
+            alwaysSentence = true,
+        ),
+        "Cloze" to Layout(
+            written = arrayOf("Characters"),
+            spoken = arrayOf("Pinyin"),
+            meaning = arrayOf("English"),
+        ),
+        "MOVIE" to Layout(
+            written = arrayOf("HANZI"),
+            spoken = arrayOf("PINYIN"),
+            meaning = arrayOf("KEYWORD"),
+        ),
+        "WORD CONNECTION" to Layout(
+            written = arrayOf("WORD"),
+            spoken = arrayOf("PINYIN"),
+            meaning = arrayOf("MEANING"),
+        ),
+        // PROP cards name a mnemonic prop ("Toilet"), not a translation, so the meaning is left to
+        // CC-CEDICT — which mostly has nothing either, these being strokes and components.
+        "PROP" to Layout(
+            written = arrayOf("COMPONENT"),
+            spoken = arrayOf(),
+            meaning = arrayOf(),
+        ),
+    )
 
     /**
      * Whether this template has a rule of its own.
@@ -49,128 +100,40 @@ object CardParser {
      * the same failure that got ACTOR and SET excluded in the first place. Better an empty row that
      * the parse-rate guard can see than a plausible wrong one.
      */
-    fun handles(template: String): Boolean = kindOf(template) != Kind.GENERIC
+    fun handles(template: String): Boolean = layoutFor(template) != null
 
     fun parse(template: String, doc: CardDoc?): ParsedCard {
         if (doc == null) return ParsedCard.EMPTY
-        val fields = doc.strings
-            .map(ChineseText::stripMarkup)
-            .filter { it.isNotBlank() && !ChineseText.isReference(it) }
-        val title = doc.title?.let(ChineseText::stripMarkup).orEmpty()
+        // The document's own template beats the caller's: a card with two prompt rows has two
+        // schedule rows, and choosing one of them to decide how to read the card is arbitrary.
+        val layout = layoutFor(doc.template ?: template) ?: return ParsedCard.EMPTY
 
-        return when (kindOf(template)) {
-            Kind.SENTENCE -> parseSentence(title, fields)
-            Kind.CLOZE -> parseCloze(title, fields)
-            Kind.CHARACTER -> parseCharacter(title, fields)
-            Kind.GENERIC -> ParsedCard.EMPTY
-        }
-    }
+        val first = doc.field(*layout.written)
+        val second = doc.field(*layout.spoken)
+        val hanzi = listOfNotNull(first, second).firstOrNull(ChineseText::hasHan)
+            ?.let(ChineseText::stripMarkup)
+            ?.takeIf { ChineseText.hasHan(it) }
+            ?: return ParsedCard.EMPTY
+        val reading = listOfNotNull(first, second)
+            .firstOrNull { !ChineseText.hasHan(it) }
+            ?.let(ChineseText::stripMarkup)
 
-    /**
-     * MSLK cards are English-to-Chinese production drills, so the title is the *English* prompt and
-     * the Chinese lives in the body. That is also why the old title-first rule contributed nothing
-     * here — it worked only because the fallback scan happened to find the sentence.
-     */
-    private fun parseSentence(title: String, fields: List<String>): ParsedCard {
-        // Grouped by characters rather than deduplicated as strings: the same sentence appearing
-        // twice with different trailing punctuation is not two candidates, and treating it as two
-        // would make the card unreadable. Two genuinely different sentences still yield nothing.
-        val written = fields.filter(ChineseText::hasHan).groupBy(ChineseText::hanOnly)
-        if (written.size != 1) return ParsedCard.EMPTY
-        val sentence = written.values.first().maxByOrNull { it.length } ?: return ParsedCard.EMPTY
-        return ParsedCard(
-            hanzi = sentence,
-            pinyin = alignedReading(sentence, soleReading(fields)),
-            english = title.takeIf { it.isNotBlank() },
-            isSentence = true,
-        )
-    }
-
-    /**
-     * Pronunciation Mastery clozes hide the *reading*, not the word: the card shows 明天 and blanks
-     * out `{{c1::míng}}{{c2::tiān}}`. So the answer is exactly the per-character reading we want,
-     * and the prompt is the vocabulary.
-     *
-     * Titles are not always a single word — some are phrases (`在哪里？`), some pair a character
-     * with an example (`渴 她渴了`), a few are dialogues. Taking the first Han run keeps the card's
-     * own subject and leaves the example behind.
-     */
-    private fun parseCloze(title: String, fields: List<String>): ParsedCard {
-        val hanzi = ChineseText.hanRuns(title).firstOrNull() ?: return ParsedCard.EMPTY
-        val reading = fields.firstOrNull { it.contains(CLOZE_MARKER) }
-            ?.let { CLOZE.findAll(it).map { match -> match.groupValues[1].trim() }.toList() }
-            ?.filter { it.isNotBlank() }
-            ?.joinToString(" ")
+        val characters = ChineseText.hanOnly(hanzi).length
         return ParsedCard(
             hanzi = hanzi,
-            pinyin = alignedReading(hanzi, reading),
-            // The card's English sits in an unlabelled field next to several other bare strings
-            // (`front-0`, `any`, the course name) with nothing to tell them apart, so this one is
-            // left to CC-CEDICT — see the note in sync.md on shape-based field detection.
-            english = null,
-            // Borrowed from the segmenter on purpose: "too long to be a word" and "too long for
-            // longest match to find" have to agree, or a title lands as a headword with no gloss
-            // while its 4-grams are still being treated as words downstream.
-            isSentence = hanzi.length > Segmenter.MAX_WORD_LENGTH,
-        )
-    }
-
-    /** MOVIE cards teach one character and carry its keyword and reading, each wrapped in HTML. */
-    private fun parseCharacter(title: String, fields: List<String>): ParsedCard {
-        val hanzi = ChineseText.hanRuns(title).firstOrNull() ?: return ParsedCard.EMPTY
-        return ParsedCard(
-            hanzi = hanzi,
-            pinyin = alignedReading(hanzi, soleReading(fields)),
-            english = null,
-            isSentence = false,
+            pinyin = Pinyin.align(hanzi, reading)?.filter { it.isNotBlank() }?.joinToString(" "),
+            english = doc.field(*layout.meaning)?.let(ChineseText::stripMarkup),
+            isSentence = layout.alwaysSentence || characters > Segmenter.MAX_WORD_LENGTH,
         )
     }
 
     /**
-     * The one string on the card that reads as pinyin, or nothing.
+     * Matched on substrings because Traverse qualifies templates with the course in some places
+     * and not others (`/Mandarin_Blueprint/MSLK Card` vs `MSLK Card`).
      *
-     * Insisting on exactly one is the whole safeguard: mnemonic bodies quote readings too, and a
-     * second candidate means we cannot tell which is the card's own — so we take neither and let
-     * the dictionary answer instead.
+     * ACTOR and SET are absent deliberately — they teach a pinyin sound and are excluded before
+     * the fetch. Anything else falls through to [HanziExtractor]'s scan.
      */
-    private fun soleReading(fields: List<String>): String? =
-        fields.filter(ChineseText::isPinyin).distinct().singleOrNull()
-
-    /**
-     * [reading], but only if it actually belongs to [text].
-     *
-     * A mismatch means the string was misidentified, or that a cloze covered only part of the word
-     * — either way, no reading beats a wrong one. Stored normalised so the same check can be redone
-     * later against the stored characters, without the card.
-     */
-    private fun alignedReading(text: String, reading: String?): String? {
-        // The pinyin test matters most on the cloze path, which is the one that does not go through
-        // soleReading: a cloze blanks whatever the card author chose, and on some cards that is the
-        // characters themselves ({{c1::吃}}{{c2::饭}}) or the English. Counting alone would accept
-        // either, because Han characters are letters too.
-        if (reading == null || !ChineseText.isPinyin(reading)) return null
-        return ChineseText.alignReadings(text, reading)
-            ?.filter { it.isNotBlank() }
-            ?.joinToString(" ")
-    }
-
-    private enum class Kind { SENTENCE, CLOZE, CHARACTER, GENERIC }
-
-    /**
-     * Matched on substrings because Traverse prefixes templates with the course
-     * (`/Mandarin_Blueprint/MSLK Card`) in some places and not others.
-     *
-     * PROP and WORD CONNECTION fall through to [Kind.GENERIC] deliberately: they carry a bare word
-     * and nothing else, so the generic scan already reads them correctly and there is no reading or
-     * gloss to recover. ACTOR and SET never reach here — they are excluded before the fetch.
-     */
-    private fun kindOf(template: String): Kind = when {
-        template.contains("MSLK") -> Kind.SENTENCE
-        template.contains("Cloze", ignoreCase = true) -> Kind.CLOZE
-        template.contains("MOVIE") -> Kind.CHARACTER
-        else -> Kind.GENERIC
-    }
-
-    private const val CLOZE_MARKER = "{{c"
-    private val CLOZE = Regex("\\{\\{c\\d+::(.*?)}}")
+    private fun layoutFor(template: String): Layout? =
+        LAYOUTS.entries.firstOrNull { template.contains(it.key, ignoreCase = true) }?.value
 }
