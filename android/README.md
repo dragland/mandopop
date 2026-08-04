@@ -49,8 +49,10 @@ cd android
 After install, enable the service manually:
 
 1. Open Mandopop.
-2. Tap `Open Accessibility Settings`.
-3. Enable `Mandopop`.
+2. Tap `Turn on Mandopop` on the setup card.
+3. Enable `Mandopop` in the list.
+
+The setup card is replaced by a `Ready` line once the service is on.
 
 On recent Android versions, sideloaded accessibility services may be
 blocked by Restricted Settings. If Mandopop is disabled or cannot be toggled on,
@@ -60,17 +62,49 @@ the app details menu before returning to Accessibility Settings.
 No `Display over other apps` permission is needed because the overlay is an
 accessibility overlay owned by the service.
 
-The service observes selected text across apps while enabled. It does not request
-network access and does not store selected text.
+The service observes selected text across apps while enabled. Selected text is
+never stored and never leaves the device.
+
+The app does request `INTERNET`, used solely by Traverse sync (below). No text the
+user reads or types is ever sent anywhere.
+
+## Traverse sync
+
+Optional. Signs in to the user's own [Traverse](https://traverse.link) account and
+mirrors their spaced-repetition state locally, driving an ongoing "cards due today"
+notification and supplying the vocabulary the user actually knows.
+
+Sign in from the app's settings screen. The password is exchanged once for a refresh
+token, which Tink encrypts under an Android Keystore master key before it is written to
+DataStore; the password itself is never persisted. Sign Out clears the token, the local mirror, and the notification.
+
+- Syncs on a periodic worker, on leaving the Traverse app, on app open, and after an
+  app update. A routine sync is one Firestore read — the full deck is pulled only when
+  the day rolls over, the day's review count changes, or the mirror is over 6h stale.
+- The notification shows the bare hanzi of a due card, with a `Reveal` action for the
+  reading and meaning. It is silent, cannot be swiped away while cards are due, and
+  disappears on its own once the queue is empty.
+- Local state lives in `mandopop.db` and is a cache of remote state, so schema changes
+  drop it deliberately; the next sync refills it.
+
+mandopop is an unofficial client using the user's own credentials. A schema change on
+Traverse's side breaks sync, which is why the integration is kept thin and confined to
+`traverse/`.
+
+The Firebase web API key in `TraverseAuth` is a project identifier, not a credential — Google
+serves it in the clear to every web client and it authorises nothing by itself. No secret is
+needed to build or run this repo.
+
+Lookups run whenever the accessibility service is on. There is deliberately no
+in-app switch for them — the service is the one control, and a second one would
+only let the app claim to be running while doing nothing.
 
 Settings defaults:
 
-- `Enable Lookups`: on. Soft-disables selection handling without disabling the
-  Android accessibility service.
-- `Audio Button`: on. Shows the pronunciation button in result cards.
-- `Playful Misses`: on. Unknown selections show a random Mandarin miss card;
+- `Pronunciation`: on. Shows the pronunciation button in result cards.
+- `Playful misses`: on. Unknown selections show a random Mandarin miss card;
   turning this off makes unknown selections dismiss silently.
-- `Chinese Size`: 24sp by default.
+- `Hanzi size`: 24sp by default.
 
 ## Manual Smoke Test
 
@@ -87,7 +121,7 @@ After each install on a test device:
    characters; confirm the overlay dismisses or stays hidden.
 5. Tap outside the card, switch apps, rotate the phone, and disable the service;
    confirm no stale overlay remains.
-6. Toggle `Enable Lookups`, `Audio Button`, `Playful Misses`, and Chinese font
-   size; reselect text and confirm the overlay follows the saved setting.
+6. Toggle `Pronunciation`, `Playful misses`, and hanzi size; reselect text and
+   confirm the overlay follows the saved setting.
 7. Tap pronunciation repeatedly and confirm speech starts, restarts, and stops
    cleanly when the service is disabled.

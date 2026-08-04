@@ -1,24 +1,29 @@
 package com.mandopop
 
+import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.annotation.DrawableRes
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -53,21 +58,122 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
+import com.mandopop.notification.DueNotifier
+import com.mandopop.service.TextSelectionService
+import com.mandopop.tts.ChineseTtsManager
 import com.mandopop.settings.SettingsStore
+import com.mandopop.ui.BorderGreen
+import com.mandopop.ui.Cyan
+import com.mandopop.ui.HackerBlack
+import com.mandopop.ui.MutedText
+import com.mandopop.ui.NeonGreen
+import com.mandopop.ui.PaleGreen
+import com.mandopop.ui.PanelBlack
+import com.mandopop.ui.LookupPreview
+import com.mandopop.ui.SectionLabel
+import com.mandopop.ui.ServiceStatusCard
+import com.mandopop.ui.SettingsPanel
+import com.mandopop.ui.ToggleRow
+import com.mandopop.ui.TraversePanel
+import com.mandopop.traverse.TraverseSync
+import com.mandopop.work.SyncWorker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private val settingsStore by lazy { SettingsStore(applicationContext) }
+    private val traverseSync by lazy { TraverseSync(applicationContext) }
+
+    /** Drives the sample card's play button, so the pronunciation toggle demonstrates itself. */
+    private val tts by lazy { ChineseTtsManager(applicationContext) }
+
+    /**
+     * Whether Android has granted the accessibility permission lookups depend on.
+     *
+     * Re-read on every resume, because the user grants it by leaving for system settings and
+     * coming back — there is no callback for it.
+     */
+    private var serviceEnabled by mutableStateOf(false)
+
+    // Sign-in posts the first notification before the permission dialog is answered, so it gets
+    // dropped. Re-post once the user grants it, otherwise nothing appears until the worker runs.
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) return@registerForActivityResult
+            lifecycleScope.launch {
+                runCatching { traverseSync.sync() }
+                    .onSuccess { DueNotifier.show(applicationContext, it) }
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15 draws every app edge-to-edge whether it opts in or not, so declare it and
+        // pad by the insets rather than letting the header slide under the status bar.
+        enableEdgeToEdge()
+
+        // Off the main thread: the signed-in check decrypts a stored token and hits disk.
+        lifecycleScope.launch {
+            if (withContext(Dispatchers.IO) { traverseSync.isSignedIn() }) {
+                SyncWorker.ensureScheduled(applicationContext)
+            }
+        }
+
         setContent {
             MandopopSettingsApp(
                 settingsStore = settingsStore,
+                traverseSync = traverseSync,
+                serviceEnabled = serviceEnabled,
                 openAccessibilitySettings = {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 },
+                requestNotificationPermission = ::requestNotificationPermission,
+                playPreview = { tts.speak("你好") },
             )
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        serviceEnabled = isLookupServiceEnabled()
+        // Rebuild the notification whenever the app is opened. Cheap (local counts only) and it
+        // means a stale or swiped-away notification is never more than an app launch from correct,
+        // instead of waiting up to 15 minutes for the next periodic sync.
+        lifecycleScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    if (!traverseSync.isSignedIn()) return@withContext null
+                    Triple(
+                        traverseSync.localDueCount(),
+                        traverseSync.localLiveCount(),
+                        traverseSync.localExample(),
+                    )
+                }
+            }.getOrNull()?.let { (due, live, example) ->
+                DueNotifier.repost(applicationContext, due, live, example)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        tts.shutdown()
+        super.onDestroy()
+    }
+
+    private fun isLookupServiceEnabled(): Boolean {
+        val expected = ComponentName(this, TextSelectionService::class.java).flattenToString()
+        return Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+        ).orEmpty().split(':').any { it.equals(expected, ignoreCase = true) }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }
@@ -75,10 +181,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MandopopSettingsApp(
     settingsStore: SettingsStore,
+    traverseSync: TraverseSync,
+    serviceEnabled: Boolean,
     openAccessibilitySettings: () -> Unit,
+    requestNotificationPermission: () -> Unit,
+    playPreview: () -> Unit,
 ) {
+    val scrollState = rememberScrollState()
     val initial = remember { settingsStore.snapshot() }
-    var enabled by remember { mutableStateOf(initial.enabled) }
     var showAudio by remember { mutableStateOf(initial.showAudio) }
     var playfulNoResult by remember { mutableStateOf(initial.playfulNoResult) }
     var fontSize by remember { mutableFloatStateOf(initial.chineseFontSizeSp.toFloat()) }
@@ -97,51 +207,29 @@ private fun MandopopSettingsApp(
             modifier = Modifier
                 .fillMaxSize()
                 .background(HackerBlack)
+                .safeDrawingPadding()
                 .padding(20.dp),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 Header()
 
-                Button(
-                    onClick = openAccessibilitySettings,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = NeonGreen,
-                        contentColor = HackerBlack,
-                    ),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_accessibility),
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text("Open Accessibility Settings", fontWeight = FontWeight.SemiBold)
-                }
+                ServiceStatusCard(
+                    serviceEnabled = serviceEnabled,
+                    onOpenSettings = openAccessibilitySettings,
+                )
 
+                SectionLabel("Lookups")
                 SettingsPanel {
                     ToggleRow(
-                        icon = R.drawable.ic_translate,
-                        label = "Enable Lookups",
-                        checked = enabled,
-                        onCheckedChange = {
-                            enabled = it
-                            settingsStore.setEnabled(it)
-                        },
-                    )
-
-                    ToggleRow(
                         icon = R.drawable.ic_voice,
-                        label = "Audio Button",
+                        label = "Pronunciation",
+                        supporting = "Add a button to hear the word spoken",
                         checked = showAudio,
                         onCheckedChange = {
                             showAudio = it
@@ -150,77 +238,66 @@ private fun MandopopSettingsApp(
                     )
 
                     ToggleRow(
-                        icon = R.drawable.ic_translate,
-                        label = "Playful Misses",
+                        icon = R.drawable.ic_sparkle,
+                        label = "Playful misses",
+                        supporting = "Reply with a Mandarin phrase when a word isn't in the dictionary",
                         checked = playfulNoResult,
                         onCheckedChange = {
                             playfulNoResult = it
                             settingsStore.setPlayfulNoResult(it)
                         },
                     )
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_text_fields),
-                                contentDescription = null,
-                                tint = Cyan,
-                                modifier = Modifier.size(22.dp),
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = "Chinese Size",
-                                color = PaleGreen,
-                                fontSize = 15.sp,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = "${fontSize.roundToInt()}sp",
-                                color = NeonGreen,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 14.sp,
-                            )
-                        }
-                        Slider(
-                            value = fontSize,
-                            onValueChange = {
-                                val rounded = (it / 2f).roundToInt() * 2f
-                                fontSize = rounded.coerceIn(
-                                    SettingsStore.MIN_FONT_SIZE_SP.toFloat(),
-                                    SettingsStore.MAX_FONT_SIZE_SP.toFloat(),
-                                )
-                            },
-                            onValueChangeFinished = {
-                                settingsStore.setChineseFontSizeSp(fontSize)
-                            },
-                            modifier = Modifier.semantics {
-                                contentDescription = "Chinese character size"
-                                stateDescription = "${fontSize.roundToInt()}sp"
-                            },
-                            valueRange = SettingsStore.MIN_FONT_SIZE_SP.toFloat()..
-                                SettingsStore.MAX_FONT_SIZE_SP.toFloat(),
-                            steps = 9,
-                            colors = SliderDefaults.colors(
-                                thumbColor = NeonGreen,
-                                activeTrackColor = NeonGreen,
-                                inactiveTrackColor = BorderGreen,
-                            ),
-                        )
-                    }
                 }
 
-                PreviewCard(
-                    showAudio = showAudio,
-                    fontSize = fontSize.roundToInt(),
+                SectionLabel("Hanzi size")
+                SettingsPanel {
+                    LookupPreview(
+                        showAudio = showAudio,
+                        fontSize = fontSize.roundToInt(),
+                        onPlay = playPreview,
+                    )
+                    Slider(
+                        value = fontSize,
+                        onValueChange = {
+                            val rounded = (it / 2f).roundToInt() * 2f
+                            fontSize = rounded.coerceIn(
+                                SettingsStore.MIN_FONT_SIZE_SP.toFloat(),
+                                SettingsStore.MAX_FONT_SIZE_SP.toFloat(),
+                            )
+                        },
+                        onValueChangeFinished = { settingsStore.setChineseFontSizeSp(fontSize) },
+                        modifier = Modifier.semantics {
+                            contentDescription = "Hanzi size"
+                            stateDescription = "${fontSize.roundToInt()}sp"
+                        },
+                        valueRange = SettingsStore.MIN_FONT_SIZE_SP.toFloat()..
+                            SettingsStore.MAX_FONT_SIZE_SP.toFloat(),
+                        steps = 9,
+                        colors = SliderDefaults.colors(
+                            thumbColor = NeonGreen,
+                            activeTrackColor = NeonGreen,
+                            inactiveTrackColor = BorderGreen,
+                        ),
+                    )
+                }
+
+                SectionLabel("Connected courses")
+                TraversePanel(
+                    sync = traverseSync,
+                    requestNotificationPermission = requestNotificationPermission,
                 )
             }
         }
     }
 }
 
+/**
+ * Traverse account section.
+ *
+ * The password is held only in this composable's state long enough to exchange it for a refresh
+ * token, then cleared. Sync failures are shown here verbatim rather than summarised, because a
+ * silently stale card count is impossible to debug on a real device.
+ */
 @Composable
 private fun Header() {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -240,118 +317,3 @@ private fun Header() {
     }
 }
 
-@Composable
-private fun SettingsPanel(content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(PanelBlack, RoundedCornerShape(8.dp))
-            .border(1.dp, BorderGreen, RoundedCornerShape(8.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-        content = content,
-    )
-}
-
-@Composable
-private fun ToggleRow(
-    @DrawableRes icon: Int,
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .toggleable(
-                value = checked,
-                role = Role.Switch,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onValueChange = onCheckedChange,
-            )
-            .semantics(mergeDescendants = true) {
-                contentDescription = label
-                stateDescription = if (checked) "On" else "Off"
-            },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = null,
-            tint = Cyan,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = label,
-            color = PaleGreen,
-            fontSize = 15.sp,
-            modifier = Modifier.weight(1f),
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = null,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = NeonGreen,
-                checkedTrackColor = NeonGreen.copy(alpha = 0.35f),
-                uncheckedThumbColor = MutedText,
-                uncheckedTrackColor = BorderGreen,
-            ),
-        )
-    }
-}
-
-@Composable
-private fun PreviewCard(showAudio: Boolean, fontSize: Int) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xFF0D0D0D), RoundedCornerShape(8.dp))
-            .border(1.dp, Color(0xFF1A1A1A), RoundedCornerShape(8.dp))
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    text = "你好",
-                    color = NeonGreen,
-                    fontSize = fontSize.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Serif,
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "nǐ hǎo",
-                    color = Cyan,
-                    fontSize = 14.sp,
-                    fontFamily = FontFamily.Monospace,
-                )
-            }
-            Text(
-                text = "hello; hi",
-                color = MutedText,
-                fontSize = 12.sp,
-            )
-        }
-        if (showAudio) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .border(1.dp, BorderGreen, RoundedCornerShape(22.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("♪", color = NeonGreen, fontSize = 18.sp)
-            }
-        }
-    }
-}
-
-private val HackerBlack = Color(0xFF0A0F0A)
-private val PanelBlack = Color(0xFF0D1610)
-private val NeonGreen = Color(0xFF00FF88)
-private val Cyan = Color(0xFF00D4FF)
-private val PaleGreen = Color(0xFFE0FFE8)
-private val MutedText = Color(0xFF7AAA8A)
-private val BorderGreen = Color(0xFF1A3A2A)

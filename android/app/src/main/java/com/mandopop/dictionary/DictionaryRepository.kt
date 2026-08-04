@@ -47,6 +47,57 @@ class DictionaryRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Reverse lookup: hanzi to dictionary entry.
+     *
+     * Traverse identifies cards by hanzi, but every feature needs the English side, so this is the
+     * bridge between the two. Membership here doubles as the vocabulary filter — Mandarin Blueprint
+     * mixes real words in with mnemonic cards (actors, props, pinyin fragments), and only the real
+     * words have a CC-CEDICT entry.
+     */
+    suspend fun lookupBySimplified(hanzi: String, limit: Int = 3): List<CedictEntry> {
+        val trimmed = hanzi.trim()
+        if (trimmed.isEmpty() || trimmed.length > Normalizer.MAX_SELECTION_LENGTH) return emptyList()
+        return withContext(Dispatchers.IO) {
+            try {
+                querySimplified(trimmed, limit.coerceIn(1, 10))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Reverse dictionary lookup failed", error)
+                emptyList()
+            }
+        }
+    }
+
+    private fun querySimplified(hanzi: String, limit: Int): List<CedictEntry> {
+        val db = getDatabase()
+        val entries = mutableListOf<CedictEntry>()
+        val sql = """
+            SELECT simplified, pinyin, definitions
+            FROM entries
+            WHERE simplified = ?
+            ORDER BY id
+            LIMIT $limit
+        """.trimIndent()
+
+        db.rawQuery(sql, arrayOf(hanzi)).use { cursor ->
+            val simplifiedIndex = cursor.getColumnIndexOrThrow("simplified")
+            val pinyinIndex = cursor.getColumnIndexOrThrow("pinyin")
+            val definitionsIndex = cursor.getColumnIndexOrThrow("definitions")
+
+            while (cursor.moveToNext()) {
+                entries += CedictEntry(
+                    simplified = cursor.getString(simplifiedIndex),
+                    pinyin = cursor.getString(pinyinIndex),
+                    definitions = parseDefinitions(cursor.getString(definitionsIndex)),
+                )
+            }
+        }
+
+        return entries
+    }
+
     private fun queryKey(key: String, limit: Int): List<CedictEntry> {
         val db = getDatabase()
         val entries = mutableListOf<CedictEntry>()
@@ -157,6 +208,7 @@ class DictionaryRepository(private val context: Context) {
         private const val HASH_NAME = "cedict.sha256"
         private const val PREFS_NAME = "mandopop_dictionary"
         private const val KEY_COPIED_HASH = "copied_hash"
-        private const val EXPECTED_USER_VERSION = 1
+        // Must match SCHEMA_VERSION in android/scripts/build_dictionary.py.
+        private const val EXPECTED_USER_VERSION = 2
     }
 }

@@ -221,47 +221,87 @@ describe('normalizeWord', () => {
 });
 
 describe('lookup', () => {
+  // Mirrors the shipped cedict.json shape: entries stored once, English keys holding entry ids.
+  // Entry 6 (泵) is deliberately unreachable from any key — the format keeps hanzi-only entries
+  // so Android can look words up by character, and English lookup must ignore them.
   const mockDictionary = {
-    'cat': [{ s: '猫', p: 'mao', d: ['cat'] }],
-    'study': [{ s: '学习', p: 'xue xi', d: ['to study'] }],
-    'run': [{ s: '跑', p: 'pao', d: ['to run'] }],
-    'big': [{ s: '大', p: 'da', d: ['big'] }],
-    'quick': [{ s: '快', p: 'kuai', d: ['quick'] }],
-    'ice cream': [{ s: '冰淇淋', p: 'bīng qí lín', d: ['ice cream'] }],
+    v: 2,
+    entries: [
+      { s: '猫', p: 'mao', d: ['cat'] },
+      { s: '学习', p: 'xue xi', d: ['to study'] },
+      { s: '跑', p: 'pao', d: ['to run'] },
+      { s: '大', p: 'da', d: ['big'] },
+      { s: '快', p: 'kuai', d: ['quick'] },
+      { s: '冰淇淋', p: 'bīng qí lín', d: ['ice cream'] },
+      { s: '泵', p: 'bèng', d: ['pump'] },
+    ],
+    index: {
+      'cat': [0],
+      'study': [1],
+      'run': [2],
+      'big': [3],
+      'quick': [4],
+      'ice cream': [5],
+    },
   };
+
+  const expected = (key) => mockDictionary.index[key].map(id => mockDictionary.entries[id]);
 
   it('returns null when dictionary is null', () => {
     expect(lookup('cat', null)).toBeNull();
   });
 
+  it('returns null when the dictionary is missing its sections', () => {
+    expect(lookup('cat', {})).toBeNull();
+    expect(lookup('cat', { entries: mockDictionary.entries })).toBeNull();
+    expect(lookup('cat', { index: mockDictionary.index })).toBeNull();
+  });
+
+  it('resolves entry ids to entry objects', () => {
+    expect(lookup('cat', mockDictionary)).toEqual([{ s: '猫', p: 'mao', d: ['cat'] }]);
+  });
+
+  it('preserves index order when a key has several entries', () => {
+    const multi = {
+      v: 2,
+      entries: mockDictionary.entries,
+      index: { 'thing': [3, 0, 4] },
+    };
+    expect(lookup('thing', multi).map(e => e.s)).toEqual(['大', '猫', '快']);
+  });
+
+  it('does not surface entries that no English key references', () => {
+    expect(lookup('pump', mockDictionary)).toBeNull();
+  });
+
   it('finds exact match', () => {
     const result = lookup('cat', mockDictionary);
-    expect(result).toEqual(mockDictionary['cat']);
+    expect(result).toEqual(expected('cat'));
   });
 
   it('finds base form from plural', () => {
     const result = lookup('cats', mockDictionary);
-    expect(result).toEqual(mockDictionary['cat']);
+    expect(result).toEqual(expected('cat'));
   });
 
   it('finds base form from -ies plural', () => {
     const result = lookup('studies', mockDictionary);
-    expect(result).toEqual(mockDictionary['study']);
+    expect(result).toEqual(expected('study'));
   });
 
   it('finds base form from gerund with doubled consonant', () => {
     const result = lookup('running', mockDictionary);
-    expect(result).toEqual(mockDictionary['run']);
+    expect(result).toEqual(expected('run'));
   });
 
   it('finds base form from comparative with doubled consonant', () => {
     const result = lookup('bigger', mockDictionary);
-    expect(result).toEqual(mockDictionary['big']);
+    expect(result).toEqual(expected('big'));
   });
 
   it('finds base form from adverb', () => {
     const result = lookup('quickly', mockDictionary);
-    expect(result).toEqual(mockDictionary['quick']);
+    expect(result).toEqual(expected('quick'));
   });
 
   it('returns null for words not in dictionary', () => {
@@ -276,11 +316,34 @@ describe('lookup', () => {
 
   it('finds phrase by exact match', () => {
     const result = lookup('ice cream', mockDictionary);
-    expect(result).toEqual(mockDictionary['ice cream']);
+    expect(result).toEqual(expected('ice cream'));
+  });
+
+  it('skips an inflected form whose match only mentions the word', () => {
+    // CC-CEDICT glosses 哗 as "sound used to call cats", which gives "cats" a key of its own.
+    // Without the fallback that entry would beat cat -> 猫.
+    const dictionary = {
+      v: 2,
+      entries: [
+        { s: '哗', p: 'huā', d: ['clamor', '(bound form) sound used to call cats'] },
+        { s: '猫', p: 'māo', d: ['cat (CL:隻|只[zhi1])'] },
+      ],
+      index: { 'cats': [0], 'cat': [1] },
+    };
+    expect(lookup('cats', dictionary)[0].s).toBe('猫');
+  });
+
+  it('falls back to a weak match when no variant means the word', () => {
+    const dictionary = {
+      v: 2,
+      entries: [{ s: '哗', p: 'huā', d: ['sound used to call cats'] }],
+      index: { 'cats': [0] },
+    };
+    expect(lookup('cats', dictionary)[0].s).toBe('哗');
   });
 
   it('finds phrase from inflected form (ice creams -> ice cream)', () => {
     const result = lookup('ice creams', mockDictionary);
-    expect(result).toEqual(mockDictionary['ice cream']);
+    expect(result).toEqual(expected('ice cream'));
   });
 });

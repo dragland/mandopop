@@ -145,9 +145,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Initialize default settings on install
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.sync.get(['enabled', 'showAudio', 'fontSize'], (result) => {
+  chrome.storage.sync.get(['showAudio', 'fontSize'], (result) => {
     const defaults = {
-      enabled: result.enabled !== undefined ? result.enabled : true,
       showAudio: result.showAudio !== undefined ? result.showAudio : true,
       fontSize: result.fontSize !== undefined ? result.fontSize : 24
     };

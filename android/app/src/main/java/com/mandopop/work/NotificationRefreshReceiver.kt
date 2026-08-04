@@ -1,0 +1,88 @@
+package com.mandopop.work
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import com.mandopop.notification.DueNotifier
+import com.mandopop.traverse.TraverseSync
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+/**
+ * Keeps the ongoing notification correct without waiting for the next periodic sync.
+ *
+ * Handles two cases:
+ *
+ *  - **Dismissal.** Android 14 changed `FLAG_ONGOING_EVENT` so users *can* swipe ongoing
+ *    notifications away; there is no longer any flag that makes one truly permanent. Re-posting
+ *    from the delete intent is the only way to honour "persistent until the queue is empty", and
+ *    it stays honest because it stops the moment the count reaches zero.
+ *  - **App update.** A posted notification stores its icon as a bare resource id and SystemUI
+ *    caches the resolved drawable, so a notification surviving an update can render the previous
+ *    build's artwork. Re-posting rebinds it.
+ */
+class NotificationRefreshReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action
+        if (action !in HANDLED) return
+        val hanzi = intent.getStringExtra(EXTRA_HANZI)
+
+        val appContext = context.applicationContext
+        val pending = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val sync = TraverseSync(appContext)
+                if (!sync.isSignedIn()) {
+                    DueNotifier.cancel(appContext)
+                    return@launch
+                }
+
+                if (action == ACTION_REVEAL && hanzi != null) {
+                    val gloss = sync.glossFor(hanzi)
+                    if (gloss != null) {
+                        DueNotifier.showAnswer(appContext, sync.localDueCount(), hanzi, gloss)
+                        return@launch
+                    }
+                }
+                if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+                    SyncWorker.ensureScheduled(appContext)
+
+                    // A schema upgrade drops the local mirror (it is a cache of remote state, so
+                    // destructive migration is safe). Refill it here rather than leaving the user
+                    // on an empty "0 due" until the next periodic run.
+                    if (sync.localLiveCount() == 0) {
+                        val outcome = sync.sync()
+                        Log.i(TAG, "post-update refill: $outcome")
+                        DueNotifier.show(appContext, outcome)
+                        return@launch
+                    }
+                }
+                // Local counts only — neither a swipe nor an update is a reason to spend a
+                // Firestore read.
+                val due = sync.localDueCount()
+                Log.i(TAG, "refresh after $action: due=$due")
+                DueNotifier.repost(appContext, due, sync.localLiveCount(), sync.localExample())
+            } catch (error: Exception) {
+                Log.e(TAG, "Notification refresh failed", error)
+                DueNotifier.showError(appContext, error.message ?: "Notification refresh failed")
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+
+    companion object {
+        const val ACTION_DISMISSED = "com.mandopop.action.NOTIFICATION_DISMISSED"
+        const val ACTION_REVEAL = "com.mandopop.action.REVEAL"
+        const val EXTRA_HANZI = "hanzi"
+
+        private const val TAG = "MandopopNotif"
+        private val HANDLED = setOf(
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            ACTION_DISMISSED,
+            ACTION_REVEAL,
+        )
+    }
+}
