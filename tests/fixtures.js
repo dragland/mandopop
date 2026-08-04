@@ -23,5 +23,14 @@ export const readNormalizationCases = () =>
       expected: expectedRaw === '<null>' ? null : expectedRaw.split('|')
     }));
 
+export const readGlossRankCases = () =>
+  readTsvRows('gloss_rank_cases.tsv', ['name', 'definitionsRaw', 'key', 'expectedRaw'])
+    .map(({ name, definitionsRaw, key, expectedRaw }) => ({
+      name,
+      definitions: definitionsRaw.split('||'),
+      key,
+      expected: expectedRaw === '<none>' ? Infinity : Number(expectedRaw)
+    }));
+
 export const readDefinitionFormattingCases = () =>
   readTsvRows('definition_formatting_cases.tsv', ['name', 'input', 'expected']);

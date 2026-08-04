@@ -26,6 +26,23 @@ object SharedFixtures {
             )
         }
 
+    data class GlossRankCase(
+        val name: String,
+        val definitions: List<String>,
+        val key: String,
+        val expected: Int,
+    )
+
+    fun glossRankCases(): List<GlossRankCase> =
+        readRows("gloss_rank_cases.tsv", 4).map { row ->
+            GlossRankCase(
+                name = row[0],
+                definitions = row[1].split("||"),
+                key = row[2],
+                expected = row[3].takeUnless { it == "<none>" }?.toInt() ?: GlossMatch.NO_MATCH,
+            )
+        }
+
     fun definitionFormattingCases(): List<DefinitionFormattingCase> =
         readRows("definition_formatting_cases.tsv", 3).map { row ->
             DefinitionFormattingCase(

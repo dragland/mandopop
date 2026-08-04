@@ -33,11 +33,20 @@ class DictionaryRepository(private val context: Context) {
         val variants = Normalizer.normalizeWord(text) ?: return emptyList()
         return withContext(Dispatchers.IO) {
             try {
+                // An inflected form can pick up an index key from an incidental mention —
+                // CC-CEDICT glosses 哗 as "sound used to call cats" — so taking the first variant
+                // with any result at all resolved "cats" to 哗 instead of falling through to
+                // cat -> 猫. A variant wins outright only when its top entry means it.
+                var fallback: List<CedictEntry>? = null
                 for (variant in variants) {
                     val entries = queryKey(variant, limit.coerceIn(1, 10))
-                    if (entries.isNotEmpty()) return@withContext entries
+                    if (entries.isEmpty()) continue
+                    if (GlossMatch.rankOf(entries.first().definitions, variant) != GlossMatch.NO_MATCH) {
+                        return@withContext entries
+                    }
+                    if (fallback == null) fallback = entries
                 }
-                emptyList()
+                fallback ?: emptyList()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

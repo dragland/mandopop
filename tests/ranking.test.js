@@ -1,9 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { exactGlossRank, rankForKey, readFrequencies } from '../scripts/preprocess_cedict.js';
+import { readGlossRankCases } from './fixtures.js';
 
 const entry = (s, ...definitions) => ({ s, p: '', d: definitions });
 
 describe('exactGlossRank', () => {
+  // Shared with the Android implementation; the algorithm exists once per platform.
+  describe('shared parity fixtures', () => {
+    it.each(readGlossRankCases())('$name', ({ definitions, key, expected }) => {
+      expect(exactGlossRank({ d: definitions }, key)).toBe(expected);
+    });
+  });
+
   it('reports position 0 when the leading sense is the key', () => {
     expect(exactGlossRank(entry('八', 'eight'), 'eight')).toBe(0);
   });

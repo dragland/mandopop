@@ -1,0 +1,13 @@
+# name	definitions	key	expected_rank
+# definitions uses || separators (single | occurs inside CC-CEDICT classifiers).
+# expected_rank is the 0-based sense position, or <none> when no sense equals the key.
+leading_sense	eight	eight	0
+infinitive_marker	to buy; to purchase	buy	0
+indefinite_article	a cat	cat	0
+classifier_annotation	cat (CL:隻|只[zhi1])	cat	0
+register_annotation	(dialect) to hide oneself||cat	cat	1
+trailing_period	water.	water	0
+second_sense	clamor; noise	noise	1
+across_definitions	to walk; to go||to run	run	2
+mention_not_meaning	two sides	two	<none>
+incidental_mention	clamor||(bound form) sound used to call cats	cats	<none>
