@@ -14,8 +14,8 @@ import org.junit.runner.RunWith
  * The one test standing between an upgrade and a bricked database.
  *
  * Room validates a migrated schema against what it would have built and throws on *first access*,
- * not at build time — and `fallbackToDestructiveMigrationFrom(1, 2)` does not catch that, because
- * the fallback only covers versions with no migration path at all. So a slip in `MIGRATION_2_3`
+ * not at build time — and `fallbackToDestructiveMigrationFrom(1)` does not catch that, because the
+ * fallback only covers versions with no migration path at all. So a slip in `MIGRATION_2_3`
  * would surface as an exception every time the app touched the database on the user's phone.
  *
  * Also asserts the thing the migration exists for: that existing card content survives, rather than

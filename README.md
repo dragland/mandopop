@@ -117,8 +117,8 @@ bash scripts/generate_icons.sh
 ## Roadmap
 
 The Android app knows which words I know: it reads my whole flashcard deck and keeps a
-`known_words` index. Nothing consumes it yet except a coverage readout in settings and the
-due-card notification. Next, roughly in order — each unlocks the one after:
+`known_words` index. Nothing consumes that index yet except a coverage readout in settings; the
+due-card notification reads the cards directly. Next, roughly in order — each unlocks the one after:
 
 - **SRS-aware lookups** — the selection overlay showing recall state ("reviewed 4×, due tomorrow").
 - **Tap-anywhere reading mode** — read on-screen text from the accessibility tree instead of

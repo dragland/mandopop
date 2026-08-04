@@ -127,42 +127,15 @@ class CardVocabulary(
         )
     }
 
-    /**
-     * Logs what each template yielded, and names the one that collapsed.
-     *
-     * The index is the foundation for every immersion feature, so under-coverage has to be loud —
-     * a quietly half-filled table would poison everything built on it and look exactly like a user
-     * who has studied less. The guard only watches templates [CardParser] claims to handle, and
-     * only once a batch is large enough for the rate to mean anything.
-     *
-     * Rows are already written by this point, deliberately: they carry the parser version that
-     * produced them, so fixing the parser refetches them anyway, and discarding them would just
-     * re-spend the reads. The consequence is that the error fires once per version and the durable
-     * signal is the coverage readout — which is why that readout names unreadable cards outright.
-     */
+    /** Logs what each template yielded, and names the one that collapsed. */
     private fun report(outcomes: List<Outcome>): TraverseException? {
-        var failure: TraverseException? = null
         for ((template, cards) in outcomes.groupBy { it.template }) {
-            val read = cards.count { it.read }
-            Log.i(TAG, "$template: $read/${cards.size} read")
-            if (!CardParser.handles(template)) continue
-            // Reading *none* of a template is a break at any size — WORD CONNECTION has six cards
-            // and would otherwise never be watched at all. Above that, only a collapse counts:
-            // measured yields are 100% everywhere except PROP's 31/32, so a tighter rate would
-            // fire on a handful of odd cards, and the coverage readout already names those.
-            val broken = read == 0 && cards.size >= MIN_COLLAPSE ||
-                cards.size >= MIN_SAMPLE && read * 2 < cards.size
-            if (broken && failure == null) {
-                failure = TraverseException(
-                    "Could not read $template on ${cards.size - read} of ${cards.size} cards — " +
-                        "card layout changed?",
-                )
-            }
+            Log.i(TAG, "$template: ${cards.count { it.read }}/${cards.size} read")
         }
-        return failure
+        return brokenTemplate(outcomes)?.let(::TraverseException)
     }
 
-    private data class Outcome(val template: String, val read: Boolean)
+    internal data class Outcome(val template: String, val read: Boolean)
 
     /** Re-resolved on demand, so revealing an answer needs no stored state that could go stale. */
     suspend fun glossFor(hanzi: String): String? {
@@ -180,7 +153,7 @@ class CardVocabulary(
             "${entry.pinyin}  ${entry.definitions.take(MAX_SENSES).joinToString("; ")}"
         }
 
-    private companion object {
+    internal companion object {
         const val TAG = "CardVocabulary"
         const val MAX_READINGS = 3
         const val MAX_SENSES = 2
@@ -191,5 +164,36 @@ class CardVocabulary(
 
         /** But reading nothing at all is a break, and needs only enough cards to not be a fluke. */
         const val MIN_COLLAPSE = 3
+
+        /**
+         * The first template whose extraction collapsed, as a message, or null.
+         *
+         * The index is the foundation for every immersion feature, so under-coverage has to be
+         * loud — a quietly half-filled table would poison everything built on it and look exactly
+         * like a user who has studied less.
+         *
+         * Rows are already written by the time this runs, deliberately: they carry the parser
+         * version that produced them, so fixing the parser refetches them anyway, and discarding
+         * them would just re-spend the reads. The consequence is that the error fires once per
+         * version, and the durable signal is the coverage readout — which is why that readout
+         * names unreadable cards outright rather than showing a ratio.
+         */
+        internal fun brokenTemplate(outcomes: List<Outcome>): String? {
+            for ((template, cards) in outcomes.groupBy { it.template }) {
+                if (!CardParser.handles(template)) continue
+                val read = cards.count { it.read }
+                // Reading *none* of a template is a break at any size — WORD CONNECTION has six
+                // cards and would otherwise never be watched at all. Above that only a collapse
+                // counts: measured yields are 100% everywhere except PROP's 31/32, so a tighter
+                // rate would fire on a handful of odd cards that coverage already names.
+                val broken = read == 0 && cards.size >= MIN_COLLAPSE ||
+                    cards.size >= MIN_SAMPLE && read * 2 < cards.size
+                if (broken) {
+                    return "Could not read $template on ${cards.size - read} of " +
+                        "${cards.size} cards — card layout changed?"
+                }
+            }
+            return null
+        }
     }
 }

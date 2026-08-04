@@ -223,7 +223,7 @@ class CardParserTest {
     }
 
     @Test
-    fun `leaves unmapped templates to the generic scan`() {
+    fun `knows which templates it has a layout for`() {
         assertFalse(CardParser.handles("/Mandarin_Blueprint/ACTOR REVIEW"))
         assertFalse(CardParser.handles("/Mandarin_Blueprint/SET REVIEW"))
         assertTrue(CardParser.handles("MSLK Card"))
