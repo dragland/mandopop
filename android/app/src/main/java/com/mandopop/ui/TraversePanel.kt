@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 internal fun TraversePanel(
     sync: TraverseSync,
     requestNotificationPermission: () -> Unit,
+    onExpanded: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -77,18 +78,24 @@ internal fun TraversePanel(
             error = sync.state().lastError
             dueCount = sync.localDueCount()
         }
-        if (error != null) expanded = true
+        if (error != null) {
+            expanded = true
+            onExpanded()
+        }
     }
 
     SettingsPanel {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { expanded = !expanded },
+                .clickable {
+                    expanded = !expanded
+                    if (expanded) onExpanded()
+                },
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                painter = painterResource(R.drawable.ic_translate),
+                painter = painterResource(R.drawable.ic_link),
                 contentDescription = null,
                 tint = Cyan,
                 modifier = Modifier.size(22.dp),

@@ -3,6 +3,7 @@ package com.mandopop.ui
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,14 +73,7 @@ internal fun ServiceStatusCard(serviceEnabled: Boolean, onOpenSettings: () -> Un
         ) {
             Text("●", color = NeonGreen, fontSize = 12.sp)
             Spacer(Modifier.width(12.dp))
-            Column {
-                Text("Ready", color = PaleGreen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Select English text in any app",
-                    color = MutedText,
-                    fontSize = 13.sp,
-                )
-            }
+            Text("Ready", color = PaleGreen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
         return
     }
@@ -100,8 +94,7 @@ internal fun ServiceStatusCard(serviceEnabled: Boolean, onOpenSettings: () -> Un
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "Mandopop reads the word you select, which Android only allows through " +
-                    "Accessibility. Lookups stay off until you turn it on.",
+                "Reading your selected word needs Android's Accessibility permission.",
                 color = MutedText,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
@@ -179,7 +172,7 @@ internal fun ToggleRow(
 
 /** Live sample of a lookup card, so the size slider shows its effect instead of describing it. */
 @Composable
-internal fun LookupPreview(showAudio: Boolean, fontSize: Int) {
+internal fun LookupPreview(showAudio: Boolean, fontSize: Int, onPlay: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -211,7 +204,9 @@ internal fun LookupPreview(showAudio: Boolean, fontSize: Int) {
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .border(1.dp, BorderGreen, RoundedCornerShape(22.dp)),
+                    .border(1.dp, BorderGreen, RoundedCornerShape(22.dp))
+                    .clickable(onClick = onPlay)
+                    .semantics { contentDescription = "Play 你好" },
                 contentAlignment = Alignment.Center,
             ) {
                 Text("♪", color = NeonGreen, fontSize = 18.sp)

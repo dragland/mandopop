@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.mandopop.notification.DueNotifier
 import com.mandopop.service.TextSelectionService
+import com.mandopop.tts.ChineseTtsManager
 import com.mandopop.settings.SettingsStore
 import com.mandopop.ui.BorderGreen
 import com.mandopop.ui.Cyan
@@ -85,6 +87,9 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     private val settingsStore by lazy { SettingsStore(applicationContext) }
     private val traverseSync by lazy { TraverseSync(applicationContext) }
+
+    /** Drives the sample card's play button, so the pronunciation toggle demonstrates itself. */
+    private val tts by lazy { ChineseTtsManager(applicationContext) }
 
     /**
      * Whether Android has granted the accessibility permission lookups depend on.
@@ -127,6 +132,7 @@ class MainActivity : ComponentActivity() {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 },
                 requestNotificationPermission = ::requestNotificationPermission,
+                playPreview = { tts.speak("你好") },
             )
         }
     }
@@ -153,6 +159,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onDestroy() {
+        tts.shutdown()
+        super.onDestroy()
+    }
+
     private fun isLookupServiceEnabled(): Boolean {
         val expected = ComponentName(this, TextSelectionService::class.java).flattenToString()
         return Settings.Secure.getString(
@@ -175,7 +186,10 @@ private fun MandopopSettingsApp(
     serviceEnabled: Boolean,
     openAccessibilitySettings: () -> Unit,
     requestNotificationPermission: () -> Unit,
+    playPreview: () -> Unit,
 ) {
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
     val initial = remember { settingsStore.snapshot() }
     var enabled by remember { mutableStateOf(initial.enabled) }
     var showAudio by remember { mutableStateOf(initial.showAudio) }
@@ -203,7 +217,7 @@ private fun MandopopSettingsApp(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 Header()
@@ -238,7 +252,7 @@ private fun MandopopSettingsApp(
                     )
 
                     ToggleRow(
-                        icon = R.drawable.ic_translate,
+                        icon = R.drawable.ic_sparkle,
                         label = "Playful misses",
                         supporting = "Reply with a Mandarin phrase when a word isn't in the dictionary",
                         checked = playfulNoResult,
@@ -251,7 +265,11 @@ private fun MandopopSettingsApp(
 
                 SectionLabel("Hanzi size")
                 SettingsPanel {
-                    LookupPreview(showAudio = showAudio, fontSize = fontSize.roundToInt())
+                    LookupPreview(
+                        showAudio = showAudio,
+                        fontSize = fontSize.roundToInt(),
+                        onPlay = playPreview,
+                    )
                     Slider(
                         value = fontSize,
                         onValueChange = {
@@ -281,6 +299,8 @@ private fun MandopopSettingsApp(
                 TraversePanel(
                     sync = traverseSync,
                     requestNotificationPermission = requestNotificationPermission,
+                    // Last section on the page, so revealing it means scrolling to the end.
+                    onExpanded = { scope.launch { scrollState.animateScrollTo(scrollState.maxValue) } },
                 )
             }
         }
