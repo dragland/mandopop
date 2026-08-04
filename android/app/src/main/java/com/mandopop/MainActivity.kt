@@ -189,7 +189,6 @@ private fun MandopopSettingsApp(
 ) {
     val scrollState = rememberScrollState()
     val initial = remember { settingsStore.snapshot() }
-    var enabled by remember { mutableStateOf(initial.enabled) }
     var showAudio by remember { mutableStateOf(initial.showAudio) }
     var playfulNoResult by remember { mutableStateOf(initial.playfulNoResult) }
     var fontSize by remember { mutableFloatStateOf(initial.chineseFontSizeSp.toFloat()) }
@@ -222,23 +221,11 @@ private fun MandopopSettingsApp(
 
                 ServiceStatusCard(
                     serviceEnabled = serviceEnabled,
-                    lookupsEnabled = enabled,
                     onOpenSettings = openAccessibilitySettings,
                 )
 
                 SectionLabel("Lookups")
                 SettingsPanel {
-                    ToggleRow(
-                        icon = R.drawable.ic_translate,
-                        label = "Lookups",
-                        supporting = "Pop up a card when you select English text",
-                        checked = enabled,
-                        onCheckedChange = {
-                            enabled = it
-                            settingsStore.setEnabled(it)
-                        },
-                    )
-
                     ToggleRow(
                         icon = R.drawable.ic_voice,
                         label = "Pronunciation",

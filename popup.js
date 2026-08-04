@@ -3,16 +3,14 @@
  */
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const enabledToggle = document.getElementById('enabled');
   const showAudioToggle = document.getElementById('showAudio');
   const fontSizeSlider = document.getElementById('fontSize');
   const fontSizeValue = document.getElementById('fontSizeValue');
   const previewChinese = document.getElementById('previewChinese');
 
   // Load current settings
-  const settings = await chrome.storage.sync.get(['enabled', 'showAudio', 'fontSize']);
+  const settings = await chrome.storage.sync.get(['showAudio', 'fontSize']);
 
-  enabledToggle.checked = settings.enabled !== false;
   showAudioToggle.checked = settings.showAudio !== false;
   fontSizeSlider.value = settings.fontSize || 24;
   fontSizeValue.textContent = `${fontSizeSlider.value}px`;
@@ -28,10 +26,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Save on change
-  enabledToggle.addEventListener('change', () => {
-    save({ enabled: enabledToggle.checked });
-  });
-
   showAudioToggle.addEventListener('change', () => {
     save({ showAudio: showAudioToggle.checked });
   });

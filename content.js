@@ -38,7 +38,6 @@
   let speechPrewarmed = false;
   let chineseVoice = null;
   let settings = {
-    enabled: true,
     showAudio: true,
     fontSize: 24
   };
@@ -48,9 +47,8 @@
   // Load settings
   async function loadSettings() {
     try {
-      const stored = await chrome.storage.sync.get(['enabled', 'showAudio', 'fontSize']);
+      const stored = await chrome.storage.sync.get(['showAudio', 'fontSize']);
       settings = {
-        enabled: stored.enabled !== false,
         showAudio: stored.showAudio !== false,
         fontSize: stored.fontSize || 24
       };
@@ -61,7 +59,6 @@
 
   // Listen for settings changes (fixed condition)
   chrome.storage.onChanged.addListener((changes) => {
-    if ('enabled' in changes) settings.enabled = changes.enabled.newValue;
     if ('showAudio' in changes) settings.showAudio = changes.showAudio.newValue;
     if ('fontSize' in changes) {
       settings.fontSize = changes.fontSize.newValue;
@@ -351,7 +348,6 @@
 
   // Handle text selection (debounced)
   async function doSelection(event) {
-    if (!settings.enabled) return;
     if (popup && popup.contains(event.target)) return;
 
     const selection = window.getSelection();

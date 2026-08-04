@@ -57,19 +57,11 @@ internal fun SectionLabel(text: String) {
  *
  * The app is inert until Android grants the accessibility permission, and that is invisible from
  * inside the app — so this states it outright rather than offering an ambiguous "open settings"
- * button that looks the same either way. Once granted it steps back to a quiet confirmation
- * instead of continuing to shout.
+ * button that looks the same either way. Once granted it steps back to a quiet confirmation.
  */
 @Composable
-internal fun ServiceStatusCard(
-    serviceEnabled: Boolean,
-    lookupsEnabled: Boolean,
-    onOpenSettings: () -> Unit,
-) {
+internal fun ServiceStatusCard(serviceEnabled: Boolean, onOpenSettings: () -> Unit) {
     if (serviceEnabled) {
-        // Both conditions have to hold, or the card would claim "Ready" while lookups are off —
-        // the same lie about state it exists to prevent.
-        val paused = !lookupsEnabled
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -78,18 +70,9 @@ internal fun ServiceStatusCard(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("●", color = if (paused) MutedText else NeonGreen, fontSize = 12.sp)
+            Text("●", color = NeonGreen, fontSize = 12.sp)
             Spacer(Modifier.width(12.dp))
-            Text(
-                text = if (paused) "Paused" else "Ready",
-                color = PaleGreen,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            if (paused) {
-                Spacer(Modifier.width(10.dp))
-                Text("Lookups are off", color = MutedText, fontSize = 13.sp)
-            }
+            Text("Ready", color = PaleGreen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         }
         return
     }

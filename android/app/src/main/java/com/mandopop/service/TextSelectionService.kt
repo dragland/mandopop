@@ -50,11 +50,6 @@ class TextSelectionService : AccessibilityService() {
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) return
 
         debounceJob?.cancel()
-        val settings = settingsStore.snapshot()
-        if (!settings.enabled) {
-            overlayManager.dismiss()
-            return
-        }
 
         if (isPasswordField(event)) {
             overlayManager.dismiss()
@@ -131,11 +126,6 @@ class TextSelectionService : AccessibilityService() {
 
     private suspend fun showLookup(text: String) {
         val settings = settingsStore.snapshot()
-        if (!settings.enabled) {
-            overlayManager.dismiss()
-            return
-        }
-
         val entries = dictionaryRepository.lookup(text)
         if (entries.isNotEmpty()) {
             overlayManager.show(entries, settings, isNoResult = false)

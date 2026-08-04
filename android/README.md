@@ -95,11 +95,12 @@ The Firebase web API key in `TraverseAuth` is a project identifier, not a creden
 serves it in the clear to every web client and it authorises nothing by itself. No secret is
 needed to build or run this repo.
 
+Lookups run whenever the accessibility service is on. There is deliberately no
+in-app switch for them — the service is the one control, and a second one would
+only let the app claim to be running while doing nothing.
+
 Settings defaults:
 
-- `Lookups`: on. Pauses selection handling without disabling the Android
-  accessibility service, which is buried in system settings. The status card
-  reads `Paused` while it is off.
 - `Pronunciation`: on. Shows the pronunciation button in result cards.
 - `Playful misses`: on. Unknown selections show a random Mandarin miss card;
   turning this off makes unknown selections dismiss silently.
@@ -120,7 +121,7 @@ After each install on a test device:
    characters; confirm the overlay dismisses or stays hidden.
 5. Tap outside the card, switch apps, rotate the phone, and disable the service;
    confirm no stale overlay remains.
-6. Toggle `Lookups`, `Pronunciation`, `Playful misses`, and hanzi font
-   size; reselect text and confirm the overlay follows the saved setting.
+6. Toggle `Pronunciation`, `Playful misses`, and hanzi size; reselect text and
+   confirm the overlay follows the saved setting.
 7. Tap pronunciation repeatedly and confirm speech starts, restarts, and stops
    cleanly when the service is disabled.
