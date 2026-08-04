@@ -24,9 +24,12 @@ internal val ErrorRed = Color(0xFFFF6B6B)
 
 /** Bordered container shared by every settings section. */
 @Composable
-internal fun SettingsPanel(content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsPanel(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(PanelBlack, RoundedCornerShape(8.dp))
             .border(1.dp, BorderGreen, RoundedCornerShape(8.dp))

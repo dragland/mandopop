@@ -1,7 +1,11 @@
 package com.mandopop.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -46,11 +51,11 @@ import com.mandopop.work.SyncWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun TraversePanel(
     sync: TraverseSync,
     requestNotificationPermission: () -> Unit,
-    onExpanded: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -67,6 +72,7 @@ internal fun TraversePanel(
     // Optional and advanced, so it stays folded away until asked for — but opens itself if the
     // link needs attention, since a silent broken sync is worse than a bit of clutter.
     var expanded by remember { mutableStateOf(false) }
+    val revealed = remember { BringIntoViewRequester() }
 
     LaunchedEffect(Unit) {
         if (!sync.isSignedIn()) return@LaunchedEffect
@@ -78,27 +84,20 @@ internal fun TraversePanel(
             error = sync.state().lastError
             dueCount = sync.localDueCount()
         }
-        if (error != null) {
-            expanded = true
-            onExpanded()
-        }
+        if (error != null) expanded = true
     }
 
-    SettingsPanel {
+    SettingsPanel(modifier = Modifier.bringIntoViewRequester(revealed)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable {
-                    expanded = !expanded
-                    if (expanded) onExpanded()
-                },
+                .clickable { expanded = !expanded },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_link),
+            Image(
+                painter = painterResource(R.drawable.logo_mandarin_blueprint),
                 contentDescription = null,
-                tint = Cyan,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)),
             )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -131,6 +130,8 @@ internal fun TraversePanel(
         }
 
         if (!expanded) return@SettingsPanel
+
+        LaunchedEffect(expanded) { revealed.bringIntoView() }
 
         Text(
             text = "Track which words you already know and see what is due today. " +
@@ -261,7 +262,13 @@ internal fun TraversePanel(
                     disabledContentColor = MutedText,
                 ),
             ) {
-                Text("Sign In with Traverse", fontWeight = FontWeight.SemiBold)
+                Image(
+                    painter = painterResource(R.drawable.logo_traverse),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp).clip(RoundedCornerShape(5.dp)),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("Sign in with Traverse", fontWeight = FontWeight.SemiBold)
             }
         }
 

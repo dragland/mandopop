@@ -144,3 +144,5 @@ CC-CEDICT is share-alike, so the generated `cedict.json` and SQLite asset are to
   PLoS ONE 5(6): e10729, CC BY. `subtlex_ch.tsv` is that data trimmed to headword and
   occurrences per million.
 - Audio: macOS/Chrome Web Speech API
+- The Mandarin Blueprint and Traverse logos are trademarks of their respective owners, included
+  only to identify the services the optional sync connects to. No affiliation or endorsement.

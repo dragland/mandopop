@@ -45,7 +45,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -189,7 +188,6 @@ private fun MandopopSettingsApp(
     playPreview: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
-    val scope = rememberCoroutineScope()
     val initial = remember { settingsStore.snapshot() }
     var enabled by remember { mutableStateOf(initial.enabled) }
     var showAudio by remember { mutableStateOf(initial.showAudio) }
@@ -299,8 +297,6 @@ private fun MandopopSettingsApp(
                 TraversePanel(
                     sync = traverseSync,
                     requestNotificationPermission = requestNotificationPermission,
-                    // Last section on the page, so revealing it means scrolling to the end.
-                    onExpanded = { scope.launch { scrollState.animateScrollTo(scrollState.maxValue) } },
                 )
             }
         }
