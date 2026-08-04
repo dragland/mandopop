@@ -12,7 +12,7 @@
 ## Checks
 
 - JS: `npm test && npm run lint`.
-- Android: `cd android && JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home" ./gradlew testDebugUnitTest buildDictionary`.
+- Android: `cd android && JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home" ./gradlew testDebugUnitTest lintDebug buildDictionary`. `lintDebug` is green; keep it that way. It fails the build on errors, so a permission check has to be inline where lint can follow it rather than extracted into a helper.
 - Room DAO queries: `./gradlew connectedDebugAndroidTest` (needs a device). It **uninstalls the app afterwards**, taking the accessibility grant, the Traverse session and the local mirror with it. Follow it with `installDebug`, then re-enable the service and sign in again — never run it last against a device in use.
 
 ## Constraints

@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -36,6 +37,7 @@ import com.mandopop.work.NotificationRefreshReceiver
  */
 object DueNotifier {
     const val CHANNEL_ID = "mandopop_due"
+    private const val TAG = "MandopopNotif"
     private const val NOTIFICATION_ID = 1001
     private const val TRAVERSE_PACKAGE = "com.traverse.android"
 
@@ -133,7 +135,15 @@ object DueNotifier {
         needsAttention: Boolean,
         reveal: String? = null,
     ) {
-        if (!canPostNotifications(context)) return
+        // Inline rather than extracted: lint cannot follow a permission check through a helper, and
+        // a suppression here would go on lying the day the check is removed.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "POST_NOTIFICATIONS not granted; dropping notification")
+            return
+        }
         ensureChannel(context)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -225,9 +235,4 @@ object DueNotifier {
             ?.createNotificationChannel(channel)
     }
 
-    private fun canPostNotifications(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
-        return ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-    }
 }
