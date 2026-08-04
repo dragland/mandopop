@@ -94,7 +94,7 @@ internal fun ServiceStatusCard(serviceEnabled: Boolean, onOpenSettings: () -> Un
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "Reading your selected word needs Android's Accessibility permission.",
+                "Translating selected words needs Accessibility permission.",
                 color = MutedText,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
