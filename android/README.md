@@ -84,8 +84,10 @@ DataStore; the password itself is never persisted. Sign Out clears the token, th
 - The notification shows the bare hanzi of a due card, with a `Reveal` action for the
   reading and meaning. It is silent, cannot be swiped away while cards are due, and
   disappears on its own once the queue is empty.
-- Local state lives in `mandopop.db` and is a cache of remote state, so schema changes
-  drop it deliberately; the next sync refills it.
+- Local state lives in `mandopop.db` and is a cache of remote state, so a schema change
+  with no written migration drops it and the next sync refills it. `card_content` is the
+  exception and now has a real migration: refilling it costs ~940 reads on Traverse's
+  project, so it is no longer cheap to throw away.
 
 mandopop is an unofficial client using the user's own credentials. A schema change on
 Traverse's side breaks sync, which is why the integration is kept thin and confined to

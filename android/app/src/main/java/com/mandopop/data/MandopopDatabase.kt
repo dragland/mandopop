@@ -1,6 +1,7 @@
 package com.mandopop.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Insert
@@ -9,6 +10,18 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+
+/**
+ * Cards that teach a pinyin sound rather than a word.
+ *
+ * Shared by every query that has an opinion about them, because they must agree exactly: one query
+ * fetching what another deletes is a loop against a third party's read quota. Matched on a suffix
+ * because Traverse prefixes templates with the course in some places and not others.
+ */
+private const val SOUND_ONLY =
+    "template LIKE '%ACTOR REVIEW' OR template LIKE '%SET REVIEW'"
 
 @Dao
 interface ScheduleDao {
@@ -36,11 +49,21 @@ interface ScheduleDao {
 
     @Query("SELECT COUNT(*) FROM schedules WHERE suspended = 0")
     suspend fun countLive(): Int
-
-    /** Course author, needed to build card-content paths. Uniform across the deck in practice. */
-    @Query("SELECT author_user_name FROM schedules WHERE author_user_name != '' LIMIT 1")
-    suspend fun anyAuthorUserName(): String?
 }
+
+/**
+ * A card awaiting content: the template that decides how to read it, and the author whose
+ * collection holds it.
+ *
+ * The author travels with the card rather than being read once for the whole deck. It is uniform
+ * in practice, but the backfill now covers everything rather than today's handful, so a single
+ * odd author would have 404'd — and cached as a real negative — across the entire deck at once.
+ */
+data class PendingCard(
+    @ColumnInfo(name = "card_id") val cardId: String,
+    @ColumnInfo(name = "template") val template: String,
+    @ColumnInfo(name = "author_user_name") val authorUserName: String,
+)
 
 @Dao
 interface CardContentDao {
@@ -50,24 +73,78 @@ interface CardContentDao {
     @Query("DELETE FROM card_content")
     suspend fun deleteAll()
 
-    @Query("SELECT COUNT(*) FROM card_content WHERE english IS NOT NULL")
-    suspend fun resolvedCount(): Int
-
     /**
-     * Due cards we have not looked at yet, so content backfill can run a bounded batch per sync
-     * instead of stalling the first one on ~900 network reads.
+     * Eligible cards that have been fetched and parsed at the current version.
+     *
+     * Split from [readableCount] because the two shortfalls need opposite responses and are
+     * otherwise indistinguishable: a card with no row yet is mid-drain and fixes itself, while a
+     * card with a row and no hanzi has been read and found illegible, which is a parser bug that
+     * will sit there forever. One ratio cannot say which is happening.
      */
     @Query(
         """
-        SELECT s.card_id FROM schedules s
+        SELECT COUNT(DISTINCT s.card_id) FROM schedules s
+        JOIN card_content c ON c.card_id = s.card_id AND c.parser_version >= :parserVersion
+        WHERE s.card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
+        """,
+    )
+    suspend fun fetchedCount(parserVersion: Int): Int
+
+    /** Of those, the ones that actually yielded characters. */
+    @Query(
+        """
+        SELECT COUNT(DISTINCT s.card_id) FROM schedules s
+        JOIN card_content c ON c.card_id = s.card_id AND c.parser_version >= :parserVersion
+        WHERE c.hanzi IS NOT NULL
+          AND s.card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
+        """,
+    )
+    suspend fun readableCount(parserVersion: Int): Int
+
+    /**
+     * Cards that should have content but do not yet — the backfill's entire trigger.
+     *
+     * Stated as an invariant ("every non-sound-only card has a current content row") rather than as
+     * a job, so it self-satisfies on install, on sign-in, after a parser bump and when new lessons
+     * unlock, with no first-run flag to forget. Deliberately *not* limited to due cards: the index
+     * is for immersion features that need the whole deck, not just today's reviews.
+     *
+     * Exclusion is per *card*, not per row, so it agrees with [deleteSoundOnlyCards]. A card with
+     * one ACTOR prompt and one other would otherwise be fetched by this query and deleted by that
+     * one, on every sync, for as long as both exist.
+     */
+    @Query(
+        """
+        SELECT s.card_id AS card_id, MIN(s.template) AS template,
+               MIN(s.author_user_name) AS author_user_name
+        FROM schedules s
         LEFT JOIN card_content c ON c.card_id = s.card_id
-        WHERE s.suspended = 0 AND s.due_time_ms < :boundaryMs AND c.card_id IS NULL
-          AND s.template NOT LIKE '%ACTOR REVIEW' AND s.template NOT LIKE '%SET REVIEW'
+        WHERE (c.card_id IS NULL OR c.parser_version < :parserVersion)
+          AND s.card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
         GROUP BY s.card_id
         LIMIT :limit
         """,
     )
-    suspend fun dueCardsMissingContent(boundaryMs: Long, limit: Int): List<String>
+    suspend fun cardsNeedingContent(parserVersion: Int, limit: Int): List<PendingCard>
+
+    /** Denominator for the coverage readout: cards the backfill is expected to resolve. */
+    @Query(
+        """
+        SELECT COUNT(DISTINCT card_id) FROM schedules
+        WHERE card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
+        """,
+    )
+    suspend fun eligibleCardCount(): Int
+
+    /**
+     * Forgets content for cards that have left the deck.
+     *
+     * Only safe straight after a successful full pull, and only because `TraverseSync` refuses an
+     * empty schedule response — otherwise one bad response would take the whole content cache with
+     * it. That guard is load-bearing here.
+     */
+    @Query("DELETE FROM card_content WHERE card_id NOT IN (SELECT card_id FROM schedules)")
+    suspend fun deleteOrphans(): Int
 
     /**
      * Drops words scraped from cards that teach a pinyin sound rather than a word.
@@ -77,22 +154,40 @@ interface CardContentDao {
      * `*Null* {INITIAL}` to 介. Extracting those produces vocabulary the user never learned.
      * PROP cards are deliberately *not* excluded: radicals like 一 and 十 are also real words.
      */
-    @Query(
-        """
-        DELETE FROM card_content WHERE card_id IN (
-            SELECT card_id FROM schedules
-            WHERE template LIKE '%ACTOR REVIEW' OR template LIKE '%SET REVIEW'
-        )
-        """,
-    )
+    @Query("DELETE FROM card_content WHERE card_id IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)")
     suspend fun deleteSoundOnlyCards(): Int
 
-    /** One resolved word that is due, preferring the most-forgotten card so it is worth showing. */
+    /**
+     * Every readable card the user has actually started, for the `known_words` rebuild.
+     *
+     * Suspended cards are excluded here rather than at fetch time: their content is worth caching
+     * (the lesson may unlock tomorrow) but the word is not yet known. `DISTINCT` rather than a
+     * `GROUP BY`, since the join is on the content table's primary key and a card with two prompt
+     * rows would otherwise appear twice.
+     */
+    @Query(
+        """
+        SELECT DISTINCT c.* FROM card_content c
+        JOIN schedules s ON s.card_id = c.card_id
+        WHERE c.hanzi IS NOT NULL AND s.suspended = 0
+        """,
+    )
+    suspend fun startedCardsWithContent(): List<CardContentEntity>
+
+    /**
+     * One resolved word that is due, preferring the most-forgotten card so it is worth showing.
+     *
+     * Headwords only. MSLK cards now store the whole sentence they drill, which would overrun the
+     * notification's title and has no CC-CEDICT entry for the Reveal action to look up. Before
+     * sentences were captured this query could pick a card whose stored "word" was really one
+     * fragment scavenged out of a sentence — excluding them is the honest version of that.
+     */
     @Query(
         """
         SELECT c.* FROM card_content c
         JOIN schedules s ON s.card_id = c.card_id
-        WHERE c.english IS NOT NULL AND s.suspended = 0 AND s.due_time_ms < :boundaryMs
+        WHERE c.english IS NOT NULL AND c.is_sentence = 0
+          AND s.suspended = 0 AND s.due_time_ms < :boundaryMs
         ORDER BY s.lapses DESC, s.due_time_ms ASC
         LIMIT 1
         """,
@@ -109,19 +204,78 @@ interface SyncStateDao {
     suspend fun put(state: SyncStateEntity)
 }
 
+@Dao
+interface KnownWordDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(rows: List<KnownWordEntity>)
+
+    @Query("DELETE FROM known_words")
+    suspend fun deleteAll()
+
+    /**
+     * Rebuilds the index wholesale. The table is derived, so replacing it is both simpler than
+     * diffing and the only way a word can ever *leave* — suspending a lesson should retract it.
+     */
+    @Transaction
+    suspend fun replaceAll(rows: List<KnownWordEntity>) {
+        deleteAll()
+        insertAll(rows)
+    }
+
+    @Query("SELECT COUNT(*) FROM known_words")
+    suspend fun count(): Int
+}
+
 @Database(
-    entities = [ScheduleEntity::class, CardContentEntity::class, SyncStateEntity::class],
-    version = 2,
-    exportSchema = false,
+    entities = [
+        ScheduleEntity::class,
+        CardContentEntity::class,
+        SyncStateEntity::class,
+        KnownWordEntity::class,
+    ],
+    version = 3,
+    exportSchema = true,
 )
 abstract class MandopopDatabase : RoomDatabase() {
     abstract fun scheduleDao(): ScheduleDao
     abstract fun cardContentDao(): CardContentDao
     abstract fun syncStateDao(): SyncStateDao
+    abstract fun knownWordDao(): KnownWordDao
 
     companion object {
         @Volatile
         private var instance: MandopopDatabase? = null
+
+        /**
+         * Adds the new `card_content` columns and `known_words` without dropping anything.
+         *
+         * Note what this does *not* buy: every surviving content row lands at `parser_version = 0`
+         * and is therefore stale, so the first sync re-reads all of them anyway. What it preserves
+         * is `schedules` and `sync_state` — a ~1,000-row pull and the events heartbeat — and it
+         * keeps the old content answering the notification and the word index while the drain runs.
+         *
+         * DDL is copied verbatim from `schemas/3.json`. Room validates the migrated database
+         * against what it would have built itself and throws on *first access*, not at build time,
+         * so pasting Room's own statement is the only way to be sure. `ALTER TABLE ADD COLUMN` is
+         * not idempotent, unlike its neighbour — re-registering this migration would throw.
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `card_content` " +
+                        "ADD COLUMN `parser_version` INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "ALTER TABLE `card_content` " +
+                        "ADD COLUMN `is_sentence` INTEGER NOT NULL DEFAULT 0",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `known_words` (`hanzi` TEXT NOT NULL, " +
+                        "`pinyin` TEXT, `english` TEXT, `source` TEXT NOT NULL, " +
+                        "PRIMARY KEY(`hanzi`))",
+                )
+            }
+        }
 
         fun get(context: Context): MandopopDatabase {
             return instance ?: synchronized(this) {
@@ -130,9 +284,14 @@ abstract class MandopopDatabase : RoomDatabase() {
                     MandopopDatabase::class.java,
                     "mandopop.db",
                 )
-                    // Every row here is a cache of remote state, so throwing it away on a schema
-                    // change is safe — the next sync repopulates it.
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_2_3)
+                    // Scoped to the versions that really were disposable. A blanket fallback also
+                    // covers *downgrades*, so flashing an older build while debugging would drop
+                    // the content cache and cost ~940 reads on Traverse's project to rebuild — and
+                    // from v3 on, a bump with no migration would do the same silently. Now both
+                    // throw at open instead, which is recoverable by reinstalling and impossible
+                    // to miss.
+                    .fallbackToDestructiveMigrationFrom(1, 2)
                     .build()
                     .also { instance = it }
             }

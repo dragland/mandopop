@@ -17,12 +17,27 @@ class TraverseException(
 internal object Http {
     private const val TIMEOUT_MS = 20_000
 
+    /** A card batch is ~1 MB; 20 s is comfortable on wifi and not on a throttled cellular link. */
+    const val LONG_TIMEOUT_MS = 60_000
+
     fun get(url: String, bearerToken: String): String {
         return request(url, "GET", bearerToken = bearerToken)
     }
 
-    fun postJson(url: String, body: String): String {
-        return request(url, "POST", body = body, contentType = "application/json; charset=utf-8")
+    fun postJson(
+        url: String,
+        body: String,
+        bearerToken: String? = null,
+        readTimeoutMs: Int = TIMEOUT_MS,
+    ): String {
+        return request(
+            url,
+            "POST",
+            body = body,
+            contentType = "application/json; charset=utf-8",
+            bearerToken = bearerToken,
+            readTimeoutMs = readTimeoutMs,
+        )
     }
 
     fun postForm(url: String, body: String): String {
@@ -35,12 +50,13 @@ internal object Http {
         body: String? = null,
         contentType: String? = null,
         bearerToken: String? = null,
+        readTimeoutMs: Int = TIMEOUT_MS,
     ): String {
         val connection = URL(url).openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = method
             connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
+            connection.readTimeout = readTimeoutMs
             bearerToken?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
             contentType?.let { connection.setRequestProperty("Content-Type", it) }
 

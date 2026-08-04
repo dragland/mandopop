@@ -1,20 +1,20 @@
 package com.mandopop.traverse
 
 /**
- * Pulls candidate hanzi out of a Traverse card.
+ * Pulls candidate hanzi out of a Traverse card whose layout we have not mapped.
  *
- * Deliberately schema-agnostic. Only ~10% of cards identify themselves by hanzi; the rest use
- * opaque ids (`02v28c3t8af1cxvwokl8d25u`) and hide the character somewhere in a `fields` map whose
- * keys vary by card template. Rather than hardcode key names that Traverse can rename underneath
- * us, this scans every string on the card for CJK runs and lets the dictionary decide which one is
- * a real word — CC-CEDICT membership is the filter, so a wrong guess simply fails to resolve.
+ * The fallback behind [CardParser], and the only reader for PROP and WORD CONNECTION cards. Those
+ * carry a bare word and nothing else — no reading, no gloss — so there is nothing a per-template
+ * rule would recover, and scanning every string for CJK runs and letting CC-CEDICT arbitrate reads
+ * them correctly. Membership is the filter: a wrong guess simply fails to resolve.
+ *
+ * Not used for templates [CardParser] handles. It cannot tell a card's own word from one quoted in
+ * a mnemonic beyond preferring the title, which is exactly how MOVIE cards leak their props.
  */
 object HanziExtractor {
 
-    private val CJK_RUN = Regex("[\\u4e00-\\u9fff]+")
-
     /** Longer than this is a sentence or an example, not the word the card teaches. */
-    private const val MAX_WORD_LENGTH = 4
+    private const val MAX_CANDIDATE_LENGTH = 4
 
     /**
      * Candidate words, best first.
@@ -39,9 +39,9 @@ object HanziExtractor {
 
     private fun runsIn(value: String?): List<String> {
         if (value.isNullOrBlank()) return emptyList()
-        return CJK_RUN.findAll(value)
-            .map { it.value }
-            .filter { it.length <= MAX_WORD_LENGTH }
-            .toList()
+        // Shares ChineseText's definition of a Han character rather than keeping a second copy of
+        // the range: the two drifting apart would mean one reader seeing a character the other
+        // does not, on the same card.
+        return ChineseText.hanRuns(value).filter { it.length <= MAX_CANDIDATE_LENGTH }
     }
 }

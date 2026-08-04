@@ -97,16 +97,112 @@ class ScheduleQueriesTest {
 
         assertEquals(
             setOf("opaque-id", "一（PROP）"),
-            content.dueCardsMissingContent(boundary, limit = 10).toSet(),
+            content.cardsNeedingContent(parserVersion = 1, limit = 10).map { it.cardId }.toSet(),
         )
+        assertEquals(2, content.eligibleCardCount())
     }
 
     @Test
     fun backfillIgnoresCardsAlreadyResolved() = runTest {
         schedules.replaceAll(listOf(schedule("a", cardId = "c1"), schedule("b", cardId = "c2")))
-        content.putAll(listOf(CardContentEntity("c1", "水", "shuǐ", "water", 0L)))
+        content.putAll(listOf(CardContentEntity("c1", "水", "shuǐ", "water", 0L, parserVersion = 1)))
 
-        assertEquals(listOf("c2"), content.dueCardsMissingContent(boundary, limit = 10))
+        assertEquals(
+            listOf("c2"),
+            content.cardsNeedingContent(parserVersion = 1, limit = 10).map { it.cardId },
+        )
+    }
+
+    @Test
+    fun backfillCoversTheWholeDeckNotJustTodaysReviews() = runTest {
+        // The index feeds immersion features, which need every word the user has met — not the
+        // subset that happens to be due. This filter is the reason a fresh install used to take a
+        // day to become useful.
+        schedules.replaceAll(
+            listOf(
+                schedule("due", cardId = "c1"),
+                schedule("later", cardId = "c2", dueTimeMs = boundary + 100_000),
+                schedule("parked", cardId = "c3", suspended = true),
+            ),
+        )
+
+        assertEquals(3, content.cardsNeedingContent(parserVersion = 1, limit = 10).size)
+    }
+
+    @Test
+    fun aParserBumpMakesStoredRowsStaleRatherThanDone() = runTest {
+        // The structural fix for cards cached as unreadable: without it, a parse failure is
+        // indistinguishable from "this card genuinely has no word on it", forever.
+        schedules.replaceAll(listOf(schedule("a", cardId = "c1")))
+        content.putAll(listOf(CardContentEntity("c1", null, null, null, 0L, parserVersion = 1)))
+
+        assertEquals(emptyList<String>(), content.cardsNeedingContent(1, 10).map { it.cardId })
+        assertEquals(listOf("c1"), content.cardsNeedingContent(2, 10).map { it.cardId })
+    }
+
+    @Test
+    fun knownWordInputCoversStartedCardsOnly() = runTest {
+        schedules.replaceAll(
+            listOf(
+                schedule("live", cardId = "c1"),
+                schedule("parked", cardId = "c2", suspended = true),
+            ),
+        )
+        content.putAll(
+            listOf(
+                CardContentEntity("c1", "水", "shuǐ", "water", 0L, 1),
+                // Cached because the lesson may unlock tomorrow, but not known today.
+                CardContentEntity("c2", "火", "huǒ", "fire", 0L, 1),
+                // Fetched and readable, but nothing on it — contributes no vocabulary.
+                CardContentEntity("c3", null, null, null, 0L, 1),
+            ),
+        )
+
+        assertEquals(listOf("水"), content.startedCardsWithContent().map { it.hanzi })
+    }
+
+    @Test
+    fun aCardWithTwoPromptsIsOfferedAndCountedOnce() = runTest {
+        // 89 of 973 cards have more than one prompt row. Without the dedupe the backfill would
+        // fetch each of them twice and coverage would read over 100%.
+        schedules.replaceAll(listOf(schedule("a-0", cardId = "c1"), schedule("a-1", cardId = "c1")))
+        content.putAll(listOf(CardContentEntity("c1", "水", "shuǐ", "water", 0L, 1)))
+
+        assertEquals(1, content.eligibleCardCount())
+        assertEquals(1, content.fetchedCount(1))
+        assertEquals(1, content.readableCount(1))
+        assertEquals(1, content.startedCardsWithContent().size)
+    }
+
+    @Test
+    fun aCardWithAnyPinyinPromptIsNeitherFetchedNorDeleted() = runTest {
+        // The fetch filter and the cleanup delete have to agree per *card*. When they disagreed,
+        // a card with one ACTOR prompt and one other was fetched by one and deleted by the other,
+        // every sync, forever — against a third party's read quota.
+        schedules.replaceAll(
+            listOf(
+                schedule("mixed-0", cardId = "c1", template = "/Mandarin_Blueprint/ACTOR REVIEW"),
+                schedule("mixed-1", cardId = "c1", template = "/Mandarin_Blueprint/MSLK Card"),
+            ),
+        )
+
+        assertEquals(emptyList<String>(), content.cardsNeedingContent(1, 10).map { it.cardId })
+        assertEquals(0, content.eligibleCardCount())
+    }
+
+    @Test
+    fun contentIsForgottenWhenItsCardLeavesTheDeck() = runTest {
+        schedules.replaceAll(listOf(schedule("a", cardId = "c1"), schedule("b", cardId = "c2")))
+        content.putAll(
+            listOf(
+                CardContentEntity("c1", "水", "shuǐ", "water", 0L, 1),
+                CardContentEntity("c2", "火", "huǒ", "fire", 0L, 1),
+            ),
+        )
+        schedules.replaceAll(listOf(schedule("a", cardId = "c1")))
+
+        assertEquals(1, content.deleteOrphans())
+        assertEquals(1, content.fetchedCount(1))
     }
 
     @Test
@@ -126,7 +222,8 @@ class ScheduleQueriesTest {
         )
 
         assertEquals(1, content.deleteSoundOnlyCards())
-        assertEquals(1, content.resolvedCount())
+        // The word card is untouched by the cleanup, which is the half that could silently overreach.
+        assertEquals("水", content.dueExample(boundary)?.hanzi)
     }
 
     @Test
@@ -147,6 +244,26 @@ class ScheduleQueriesTest {
         )
 
         assertEquals("东西", content.dueExample(boundary)?.hanzi)
+    }
+
+    @Test
+    fun dueExampleSkipsSentencesTheNotificationCannotPrompt() = runTest {
+        // Four characters, so a length test would have let it through — and then Reveal would look
+        // up a whole sentence in CC-CEDICT, find nothing, and appear to do nothing at all.
+        schedules.replaceAll(
+            listOf(
+                schedule("sentence", cardId = "c1", lapses = 9),
+                schedule("word", cardId = "c2", lapses = 0),
+            ),
+        )
+        content.putAll(
+            listOf(
+                CardContentEntity("c1", "他很快吗", "tā hěn kuài ma", "Is he fast?", 0L, 1, true),
+                CardContentEntity("c2", "水", "shuǐ", "water", 0L, 1),
+            ),
+        )
+
+        assertEquals("水", content.dueExample(boundary)?.hanzi)
     }
 
     @Test
