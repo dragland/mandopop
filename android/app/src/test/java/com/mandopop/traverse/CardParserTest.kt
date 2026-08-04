@@ -15,6 +15,11 @@ class CardParserTest {
     private fun doc(template: String, title: String?, vararg fields: Pair<String, String>) =
         CardDoc.of("card-1", title, template, fields.toMap())
 
+    private companion object {
+        /** Recomputed by the failure message when extraction legitimately changes. */
+        const val EXPECTED_EXTRACTION = -2114505225
+    }
+
     @Test
     fun `reads an MSLK sentence through swapped field names`() {
         // The course has these two reversed on 130 of 160 sampled cards: `Pinyin` holds the
@@ -228,6 +233,29 @@ class CardParserTest {
         assertTrue(CardParser.handles("MB PM Cloze"))
         assertTrue(CardParser.handles("/Mandarin_Blueprint/MOVIE REVIEW"))
         assertTrue(CardParser.handles("/Mandarin_Blueprint/PROP REVIEW"))
+    }
+
+    @Test
+    fun `extraction is pinned to the parser version`() {
+        // The one rule nothing else enforces: a change to what gets read off a card only reaches
+        // the 938 already-cached rows if CardParser.VERSION moves. Forgetting leaves correct code
+        // serving stale output, with every test still green — so changing extraction has to break
+        // this, and fixing it means touching the version.
+        val extraction = listOf(
+            CardParser.parse("MSLK Card", doc("MSLK Card", "You say she is OK.", "Chinese" to "Nǐ shuō tā hěn hǎo.", "Pinyin" to "你说她很好。", "English Translation" to "You say she is OK.")),
+            CardParser.parse("MB PM Cloze", doc("MB PM Cloze", "明天", "Characters" to "明天", "Pinyin" to "{{c1::míng}}{{c2::tiān}}", "English" to "tomorrow")),
+            CardParser.parse("MOVIE REVIEW", doc("MOVIE REVIEW", "个", "HANZI" to "<p>个</p>", "PINYIN" to "<p>gè</p>", "KEYWORD" to "<p>Individual</p>")),
+            CardParser.parse("WORD CONNECTION REVIEW", doc("WORD CONNECTION REVIEW", "一半", "WORD" to "一半", "PINYIN" to "yībàn", "MEANING" to "one half")),
+            CardParser.parse("PROP REVIEW", doc("PROP REVIEW", "十（PROP）", "COMPONENT" to "十 ![](https://x.png)", "PROP" to "Toilet")),
+        ).joinToString("|")
+
+        assertEquals(
+            "extraction changed — bump CardParser.VERSION so the cached deck is re-read, " +
+                "then update this fingerprint",
+            EXPECTED_EXTRACTION,
+            extraction.hashCode(),
+        )
+        assertEquals(3, CardParser.VERSION)
     }
 
     @Test

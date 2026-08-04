@@ -90,6 +90,15 @@ class CardVocabulary(
         return Backfill(changed = changed, failure = report(outcomes))
     }
 
+    /**
+     * Reads one card, falling back to the dictionary for anything it did not state.
+     *
+     * There is deliberately no generic fallback for a template with no rule. Scanning an unknown
+     * card for Han and letting CC-CEDICT arbitrate produced *something* for every card, which is
+     * the problem: an unmapped template would quietly contribute mnemonic props as vocabulary
+     * instead of showing up as unreadable. An empty row is the louder answer, and the coverage
+     * readout names it.
+     */
     private suspend fun resolve(card: PendingCard, doc: CardDoc?, now: Long): CardContentEntity {
         val blank = CardContentEntity(
             cardId = card.cardId,
@@ -100,50 +109,24 @@ class CardVocabulary(
             parserVersion = CardParser.VERSION,
         )
         val parsed = CardParser.parse(card.template, doc)
+        if (parsed.hanzi == null) return blank
 
-        if (parsed.hanzi != null) {
-            // A sentence is not a headword, so it gets no dictionary gloss — its translation is on
-            // the card, and its individual words are recovered later by segmentation.
-            val entries = if (parsed.isSentence) {
-                emptyList()
-            } else {
-                dictionary.lookupBySimplified(parsed.hanzi, limit = MAX_READINGS)
-            }
-            return CardContentEntity(
-                cardId = card.cardId,
-                hanzi = parsed.hanzi,
-                pinyin = parsed.pinyin ?: entries.firstOrNull()?.pinyin,
-                english = parsed.english ?: entries.takeIf { it.isNotEmpty() }?.let(::formatGloss),
-                fetchedAtMs = now,
-                parserVersion = CardParser.VERSION,
-                isSentence = parsed.isSentence,
-            )
+        // A sentence is not a headword, so it gets no dictionary gloss — its translation is on
+        // the card, and its individual words are recovered later by segmentation.
+        val entries = if (parsed.isSentence) {
+            emptyList()
+        } else {
+            dictionary.lookupBySimplified(parsed.hanzi, limit = MAX_READINGS)
         }
-        if (CardParser.handles(card.template)) return blank
-
-        // A hanzi-named card is its own answer, so the id is offered as a candidate too.
-        val candidates = HanziExtractor.candidates(
-            primary = doc?.title ?: card.cardId,
-            others = doc?.strings.orEmpty() + card.cardId,
+        return CardContentEntity(
+            cardId = card.cardId,
+            hanzi = parsed.hanzi,
+            pinyin = parsed.pinyin ?: entries.firstOrNull()?.pinyin,
+            english = parsed.english ?: entries.takeIf { it.isNotEmpty() }?.let(::formatGloss),
+            fetchedAtMs = now,
+            parserVersion = CardParser.VERSION,
+            isSentence = parsed.isSentence,
         )
-        var entity = blank
-        for (candidate in candidates) {
-            val entries = dictionary.lookupBySimplified(candidate, limit = MAX_READINGS)
-            if (entries.isNotEmpty()) {
-                return CardContentEntity(
-                    cardId = card.cardId,
-                    hanzi = entries.first().simplified,
-                    pinyin = entries.first().pinyin,
-                    english = formatGloss(entries),
-                    fetchedAtMs = now,
-                    parserVersion = CardParser.VERSION,
-                )
-            }
-            // Remember the characters even when the dictionary does not know them, so the card is
-            // not refetched and a later dictionary update can still resolve it.
-            if (entity.hanzi == null) entity = entity.copy(hanzi = candidate)
-        }
-        return entity
     }
 
     /**
@@ -164,8 +147,14 @@ class CardVocabulary(
         for ((template, cards) in outcomes.groupBy { it.template }) {
             val read = cards.count { it.read }
             Log.i(TAG, "$template: $read/${cards.size} read")
-            if (!CardParser.handles(template) || cards.size < MIN_SAMPLE) continue
-            if (read * 2 < cards.size && failure == null) {
+            if (!CardParser.handles(template)) continue
+            // Reading *none* of a template is a break at any size — WORD CONNECTION has six cards
+            // and would otherwise never be watched at all. Above that, only a collapse counts:
+            // measured yields are 100% everywhere except PROP's 31/32, so a tighter rate would
+            // fire on a handful of odd cards, and the coverage readout already names those.
+            val broken = read == 0 && cards.size >= MIN_COLLAPSE ||
+                cards.size >= MIN_SAMPLE && read * 2 < cards.size
+            if (broken && failure == null) {
                 failure = TraverseException(
                     "Could not read $template on ${cards.size - read} of ${cards.size} cards — " +
                         "card layout changed?",
@@ -199,7 +188,10 @@ class CardVocabulary(
         const val MAX_SENSES = 2
         const val READING_SEPARATOR = "  /  "
 
-        /** Below this a failure rate is noise — a handful of genuinely odd cards, not a break. */
+        /** Below this a failure *rate* is noise — a handful of genuinely odd cards, not a break. */
         const val MIN_SAMPLE = 20
+
+        /** But reading nothing at all is a break, and needs only enough cards to not be a fluke. */
+        const val MIN_COLLAPSE = 3
     }
 }
