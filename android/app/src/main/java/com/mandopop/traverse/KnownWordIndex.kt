@@ -98,7 +98,12 @@ class KnownWordIndex(
         val readings = Pinyin.align(text, card.pinyin)
 
         for (segment in segments) {
+            // A capital on the first word of a sentence is punctuation, not a proper noun — and
+            // the difference decides a lookup: `Mǎ` matches CC-CEDICT's surname row exactly, so 马
+            // resolved to "surname Ma" rather than "horse". Mid-sentence capitals are left alone,
+            // since those really are names (Zhōngguó).
             val reading = Segmenter.readingFor(segment, readings)
+                ?.let { if (segment.hanIndex == 0) it.replaceFirstChar(Char::lowercaseChar) else it }
             into[segment.text] = Draft(
                 hanzi = segment.text,
                 pinyin = reading ?: into[segment.text]?.pinyin,

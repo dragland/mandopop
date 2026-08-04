@@ -53,6 +53,7 @@
 - Cards write pinyin grouped by word (`zhōuwǔ`, not `zhōu wǔ`), so `Pinyin.align` splits groups into syllables against an initials×finals inventory, using the character count to pick the split. Counting whitespace tokens instead rejected 60% of the deck's readings. Build the inventory structurally, never by CC-CEDICT frequency — that drops rare-but-real syllables like `zhei`.
 - One syllable per character, except contracted erhua (这儿 is `zhèr`, two characters and one syllable — the 儿 gets a blank slot). That count check is also what proves the right field was read, so do not relax it: a mismatch anywhere in a sentence discards the reading for every word in it.
 - Android's regex engine is ICU, not the JVM's, and rejects unescaped `}}` and `]` that unit tests accept. A pattern that passes `testDebugUnitTest` can still throw `PatternSyntaxException` on a device.
+- A capital on the *first* word of a sentence is punctuation, not a proper noun, and it decides lookups: `Mǎ` matches CC-CEDICT's surname row exactly, so 马 resolved to "surname Ma" instead of "horse". `KnownWordIndex` lowercases it at `hanIndex == 0` only — mid-sentence capitals are real names.
 - Token storage is Tink + DataStore. `EncryptedSharedPreferences` is deprecated — do not "simplify" back to it.
 
 ## UX Gotchas

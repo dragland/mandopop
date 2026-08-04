@@ -11,19 +11,29 @@ package com.mandopop.traverse
 internal object ChineseText {
 
     /**
-     * The main block, Extension A, and 〇.
+     * The main block, Extension A, CJK Strokes, and 〇.
      *
-     * 〇 is why this is not one range: the ideographic zero lives in CJK Symbols and Punctuation,
-     * but a date written 二〇二六 is four characters with four syllables, and leaving it out would
-     * put the reading one short and throw the whole sentence's alignment away.
+     * Not one range, and each addition is here because a real card needed it. 〇 is the ideographic
+     * zero, which lives in CJK Symbols and Punctuation — a date written 二〇二六 has four characters
+     * and four syllables, and omitting it puts the reading one short and discards the whole
+     * sentence's alignment. CJK Strokes covers PROP cards that teach a bare stroke (㇉, ㇏): those
+     * are the card's entire content, so leaving them out made the card read as empty.
+     *
+     * Supplementary-plane characters are still excluded (one PROP card, 𠂉). They are surrogate
+     * pairs, so admitting them would make `String` indices stop matching character counts, and the
+     * reading alignment is built on that equivalence.
      */
     private const val HAN_START = '一'
     private const val HAN_END = '鿿'
     private const val EXT_A_START = '㐀'
     private const val EXT_A_END = '䶿'
+    private const val STROKE_START = '㇀'
+    private const val STROKE_END = '㇯'
     private const val IDEOGRAPHIC_ZERO = '〇'
 
-    private val HAN_RUN = Regex("[$HAN_START-$HAN_END$EXT_A_START-$EXT_A_END$IDEOGRAPHIC_ZERO]+")
+    private val HAN_RUN = Regex(
+        "[$HAN_START-$HAN_END$EXT_A_START-$EXT_A_END$STROKE_START-$STROKE_END$IDEOGRAPHIC_ZERO]+",
+    )
     private val HTML_TAG = Regex("<[^>]*>")
     private val WHITESPACE = Regex("\\s+")
 
@@ -40,7 +50,10 @@ internal object ChineseText {
     )
 
     fun isHan(char: Char): Boolean =
-        char in HAN_START..HAN_END || char in EXT_A_START..EXT_A_END || char == IDEOGRAPHIC_ZERO
+        char in HAN_START..HAN_END ||
+            char in EXT_A_START..EXT_A_END ||
+            char in STROKE_START..STROKE_END ||
+            char == IDEOGRAPHIC_ZERO
 
     fun hasHan(text: String): Boolean = text.any(::isHan)
 
