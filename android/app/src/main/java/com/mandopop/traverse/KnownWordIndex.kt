@@ -51,27 +51,28 @@ class KnownWordIndex(
         }
         val isWord: (String) -> Boolean = vocabulary::contains
 
-        // A card that resolves to exactly one word teaches that word; anything that splits was met
-        // in passing. Sentences are laid down first so a direct card always wins the overlap.
-        val cut = cards.map { it to Segmenter.segment(it.hanzi.orEmpty(), isWord) }
+        // Every word the deck shows, with the readings it gave them. Order is irrelevant: a word
+        // taught outright on any card is taught, whichever card is folded in first.
         val words = linkedMapOf<String, Draft>()
-        for ((card, segments) in cut.sortedBy { (_, segments) -> if (segments.size == 1) 1 else 0 }) {
-            collect(card, segments, words)
+        for (card in cards.sortedBy { it.cardId }) {
+            collect(card, Segmenter.segment(card.hanzi.orEmpty(), isWord), words)
         }
 
         // One batched query rather than one per word, for the same reason as the membership pass:
         // several hundred point lookups is round-trip cost with nothing to show for it.
         val entries = dictionary.entriesBySimplified(words.keys, limitPerWord = MAX_READINGS)
         val rows = words.values.mapNotNull { draft ->
-            // No dictionary entry, no row. Not a judgement about what the user knows — it is that
-            // the index is only ever queried English-first (ask CC-CEDICT for candidates, keep the
-            // ones in here), so something the dictionary has never heard of cannot be reached
-            // through the only path this table exists for. In practice this is the handful of bare
-            // strokes and components that PROP cards teach: ㇉, ㇏, 乚.
-            val entry = preferredEntry(entries[draft.hanzi].orEmpty(), draft.pinyin) ?: return@mapNotNull null
+            val reading = draft.reading()
+            val entry = preferredEntry(entries[draft.hanzi].orEmpty(), reading)
+                ?: return@mapNotNull null
             KnownWordEntity(
                 hanzi = draft.hanzi,
-                pinyin = draft.pinyin ?: entry.pinyin,
+                // Where the two agree apart from case, take the dictionary's spelling. Where they
+                // genuinely differ the card wins — it carries sandhi that citation forms do not —
+                // but the capital still follows the dictionary, which is the thing that knows
+                // whether this is a proper noun. So 一 opening a sentence is stored `yì`, and
+                // 周日 stays `Zhōu rì` because CC-CEDICT capitalises Sunday.
+                pinyin = canonicalise(reading, entry.pinyin),
                 english = entry.definitions.take(MAX_SENSES).joinToString("; "),
                 source = draft.source,
             )
@@ -79,8 +80,7 @@ class KnownWordIndex(
         knownWordDao.replaceAll(rows)
         Log.i(
             TAG,
-            "Known words: ${rows.size} (${rows.count { it.source == TAUGHT }} taught, " +
-                "${rows.count { it.english != null }} glossed)",
+            "Known words: ${rows.size} (${rows.count { it.source == TAUGHT }} taught)",
         )
         return rows.size
     }
@@ -89,72 +89,124 @@ class KnownWordIndex(
      * Folds one card's words into [into].
      *
      * A word inside a sentence takes the syllables sitting over its own characters — the card's
-     * reading, not a dictionary guess — which works because [Pinyin.align] re-checks
-     * the reading against the characters before handing out any of it.
+     * reading, not a dictionary guess — which works because [Pinyin.align] re-checks the reading
+     * against the characters before handing out any of it.
+     *
+     * A card *teaches* its words when every Han run on it is exactly one word. That covers the
+     * vocabulary cards listing two or three side by side (`妈 爸`, `哪儿 那儿 这儿`), which the old
+     * one-segment rule mislabelled as things merely met in passing — 28 of them.
      */
     private fun collect(
         card: CardContentEntity,
         segments: List<Segment>,
         into: MutableMap<String, Draft>,
     ) {
-        if (segments.isEmpty()) return
         val text = card.hanzi ?: return
-        val source = if (segments.size == 1) TAUGHT else SENTENCE
+        if (segments.isEmpty()) return
+        val taught = segments.size == ChineseText.hanRuns(text).size
         val readings = Pinyin.align(text, card.pinyin)
 
         for (segment in segments) {
-            // A capital on the first word of a sentence is punctuation, not a proper noun — and
-            // the difference decides a lookup: `Mǎ` matches CC-CEDICT's surname row exactly, so 马
-            // resolved to "surname Ma" rather than "horse". Mid-sentence capitals are left alone,
-            // since those really are names (Zhōngguó).
-            val reading = Segmenter.readingFor(segment, readings)
-                ?.let { if (segment.hanIndex == 0) it.replaceFirstChar(Char::lowercaseChar) else it }
-            into[segment.text] = Draft(
-                hanzi = segment.text,
-                pinyin = reading ?: into[segment.text]?.pinyin,
-                source = source,
-            )
+            into.getOrPut(segment.text) { Draft(segment.text) }
+                .add(Segmenter.readingFor(segment, readings), taught)
         }
     }
 
-    private data class Draft(val hanzi: String, val pinyin: String?, val source: String)
+    /**
+     * A word, every reading the deck gave it, and whether any card taught it outright.
+     *
+     * Readings are counted rather than overwritten: 个 is `ge` on thirty cards and `gè` on three,
+     * and taking whichever arrived last made the stored value depend on SQLite's row order — one of
+     * twelve rows that changed between runs for no reason at all.
+     */
+    private class Draft(val hanzi: String) {
+        private val readings = mutableMapOf<String, Int>()
+        var source: String = SENTENCE
+            private set
+
+        fun add(reading: String?, taught: Boolean) {
+            if (reading != null) readings[reading] = (readings[reading] ?: 0) + 1
+            if (taught) source = TAUGHT
+        }
+
+        /** The deck's majority reading, ties broken by spelling so the answer is stable. */
+        fun reading(): String? = readings.entries
+            .minWithOrNull(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            ?.key
+    }
 
     companion object {
         private const val TAG = "KnownWordIndex"
         private const val TAUGHT = KnownWordEntity.SOURCE_TAUGHT
         private const val SENTENCE = KnownWordEntity.SOURCE_SENTENCE
-        private const val MAX_SENSES = 2
 
         /**
-         * Deep enough to see past the surnames. 花 has four rows and the common sense is second;
-         * a tighter cap would cut the very entry the tiebreak below is looking for.
+         * Deep enough to reach the sense the deck teaches.
+         *
+         * At two, 号 read "to call out; bugle" instead of "day of the month" on 25 cards and 热
+         * read "to warm up" instead of "hot" on 11 — the right entry every time, truncated above
+         * the meaning. CC-CEDICT orders senses by neither frequency nor register, so there is no
+         * cleverer rule available than showing more of them.
          */
+        private const val MAX_SENSES = 4
+
+        /** Deep enough to see past the surname and cross-reference rows, which sort first. */
         private const val MAX_READINGS = 6
+
+        /** `old variant of 和[he2]`, `see 他媽的` — a pointer to another entry, not a meaning. */
+        private val CROSS_REFERENCE = Regex("^(old |archaic )?variant of |^see (also )?\\S")
+
+        /** CC-CEDICT carries rows for Kangxi radicals and strokes; nobody "knows" those as words. */
+        private val COMPONENT = Regex("(radical|component|stroke) \\(?(in|of) Chinese characters")
 
         /**
          * The dictionary entry a word most likely means, given the reading its card gave.
          *
-         * Reverse lookup is ordered by row id and CC-CEDICT lists capitalised surnames first, so 花
-         * is `Huā`, 马 is `Mǎ` and 年 is `Nián` unless something breaks the tie. Case is the whole
-         * signal: those surnames share their tone-marked spelling with the common word, so matching
-         * case-insensitively picks the surname just as reliably as not matching at all. Hence the
-         * order — exact spelling, then a tone match that is *not* capitalised, then give up.
+         * Three things fight the caller here, all of them CC-CEDICT's row order:
          *
-         * This only rescues words a card supplied a reading for. The ordering defect itself belongs
-         * in the dictionary build, where both platforms would inherit the fix.
+         * *Cross-references sort first.* 和 leads with "old variant of 和[he2]" at the very reading
+         * the deck uses, so the commonest word in the deck was glossed as a pointer to itself — on
+         * 45 cards. Skipped whenever a real definition exists at the same reading.
+         *
+         * *Surnames sort first.* 花 is `Huā` before `huā`, 马 is `Mǎ` before `mǎ`. A card writes its
+         * reading capitalised whenever the word opens a sentence, so case cannot settle it and the
+         * surname wins on an exact match. CC-CEDICT labels these, so the label decides instead —
+         * which also means 周日 keeps its capitalised `Zhōu rì` "Sunday" rather than being pushed
+         * onto "(dialect) weekday". The cost is 张, taught as the surname Zhang on one card and now
+         * read as "to open up".
+         *
+         * *And nothing sorts by usefulness.* Where the reading matches nothing at all — a typo on
+         * the card, `tā yé hěn màn` for `yě` — falling straight to the first row reintroduced the
+         * surname bias this exists to remove, so the same preferences apply to the fallback.
          */
         internal fun preferredEntry(entries: List<CedictEntry>, reading: String?): CedictEntry? {
-            if (entries.isEmpty()) return null
-            if (reading == null) return entries.first()
-            val wanted = squash(reading)
-            return entries.firstOrNull { squash(it.pinyin) == wanted }
-                ?: entries.firstOrNull {
-                    squash(it.pinyin).equals(wanted, ignoreCase = true) &&
-                        !it.pinyin.first().isUpperCase()
-                }
-                ?: entries.firstOrNull { squash(it.pinyin).equals(wanted, ignoreCase = true) }
-                ?: entries.first()
+            val usable = entries.filterNot { it.definitions.firstOrNull()?.let(::isComponent) ?: true }
+            if (usable.isEmpty()) return null
+            val wanted = reading?.let(::squash)
+            val sameReading = usable.filter { squash(it.pinyin).equals(wanted, ignoreCase = true) }
+            val candidates = sameReading.ifEmpty { usable }
+
+            // First plain entry in CC-CEDICT's own order, and nothing else. Preferring an exact
+            // case match ahead of it re-broke 周日: mid-sentence cards write `zhōu rì`, which
+            // matches "(dialect) weekday" exactly while "Sunday" is capitalised. And falling back
+            // to the first row of *any* kind kept 丩, whose only entry points at another word.
+            return candidates.firstOrNull { it.isPlain() }
         }
+
+        /** The card's reading, spelled and capitalised as the dictionary would. */
+        private fun canonicalise(reading: String?, entry: String): String {
+            if (reading == null || reading.equals(entry, ignoreCase = true)) return entry
+            val proper = entry.firstOrNull()?.isUpperCase() ?: false
+            return if (proper) reading else reading.replaceFirstChar(Char::lowercaseChar)
+        }
+
+        /** Neither a pointer to another entry nor a proper noun. */
+        private fun CedictEntry.isPlain(): Boolean {
+            val first = definitions.firstOrNull() ?: return false
+            return !CROSS_REFERENCE.containsMatchIn(first) && !first.startsWith("surname ")
+        }
+
+        private fun isComponent(definition: String) = COMPONENT.containsMatchIn(definition)
 
         private fun squash(pinyin: String) = pinyin.filterNot { it.isWhitespace() }
     }

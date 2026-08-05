@@ -35,7 +35,20 @@ internal object ChineseText {
         "[$HAN_START-$HAN_END$EXT_A_START-$EXT_A_END$STROKE_START-$STROKE_END$IDEOGRAPHIC_ZERO]+",
     )
     private val HTML_TAG = Regex("<[^>]*>")
-    private val WHITESPACE = Regex("\\s+")
+
+    /**
+     * Spelled out rather than `\\s`, which means different things in different places: Android's
+     * regex engine is ICU and matches Unicode spaces, the JVM's is ASCII-only. Cards do contain
+     * non-breaking and ideographic spaces, so with `\\s` a unit test and the device disagreed about
+     * what the very same card said.
+     */
+    private val WHITESPACE = Regex("[\\s\u00a0\u2000-\u200b\u3000]+")
+
+    /** `\\-OR-` — cards escape markdown punctuation, and the backslash is not part of the text. */
+    private val ESCAPE = Regex("\\\\(.)")
+
+    /** `在（1）` — a deck-authoring suffix that disambiguates two cards teaching the same word. */
+    private val DISAMBIGUATOR = Regex("[（(]\\s*\\d+\\s*[）)]\\s*$")
 
     /** PROP cards append the character's stroke diagram to the character itself, as markdown. */
     private val MARKDOWN_LINK = Regex("!?\\[[^\\]]*\\]\\([^)]*\\)")
@@ -63,12 +76,23 @@ internal object ChineseText {
     fun hanRuns(text: String): List<String> = HAN_RUN.findAll(text).map { it.value }.toList()
 
     /**
+     * [text] without surrounding punctuation, for asking the dictionary about it.
+     *
+     * 谢谢！ is a headword and 谢谢！is not, so a card that states a perfectly ordinary word with a
+     * full stop on it was being classed as an utterance — which kept six real words out of the
+     * notification and left Reveal nothing to look up. Only punctuation and whitespace are
+     * stripped: digits and letters stay, so `1776年` does not quietly become 年.
+     */
+    fun trimPunctuation(text: String): String =
+        DISAMBIGUATOR.replace(text, "").trim { !it.isLetterOrDigit() }
+
+    /**
      * Field values are not uniformly formatted — MOVIE wraps its content in `<p>`, PROP appends an
      * image to the character itself, MSLK and Cloze are bare — so everything is flattened before it
      * is read.
      */
     fun stripMarkup(value: String): String {
-        var text = MARKDOWN_LINK.replace(HTML_TAG.replace(value, " "), " ")
+        var text = ESCAPE.replace(MARKDOWN_LINK.replace(HTML_TAG.replace(value, " "), " "), "$1")
         for ((entity, replacement) in ENTITIES) text = text.replace(entity, replacement)
         return WHITESPACE.replace(text, " ").trim()
     }

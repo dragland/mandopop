@@ -29,12 +29,23 @@ class SegmenterTest {
     }
 
     @Test
-    fun `puts a boundary in the wrong place when a real word straddles two`() {
-        // Documented, not fixed, and taken from this deck: 二十个人 is "twenty people", but 个人
-        // "individual, personal" is a genuine entry sitting across the boundary. Every output is
-        // still a substring of the input, so the damage is a misplaced boundary, never a character
-        // the user never saw.
-        assertEquals(listOf("二十", "个人"), textOf("二十个人", words("二十", "个人")))
+    fun `refuses the entries that only ever straddle two words in this deck`() {
+        // 二十个人 is "twenty people", and 个人 "individual, personal" is a genuine CC-CEDICT entry
+        // sitting across the boundary. Measured on the whole deck, fifteen such entries produced
+        // every one of the index's seventeen invented words.
+        assertEquals(listOf("二十", "个", "人"), textOf("二十个人", words("二十", "个人")))
+        assertEquals(listOf("不", "快"), textOf("不快", words("不快")))
+        assertEquals(listOf("你", "妈妈"), textOf("你妈妈", words("你妈", "妈妈")))
+    }
+
+    @Test
+    fun `still mis-cuts where longest match inherently must`() {
+        // Not fixed and not fixable by list: every output is a substring of the input, so the
+        // damage is a misplaced boundary, never a character the user never saw.
+        assertEquals(
+            listOf("南京", "市长", "江大桥"),
+            textOf("南京市长江大桥", words("南京", "市长", "江大桥", "长江")),
+        )
     }
 
     @Test

@@ -45,12 +45,17 @@ internal object Pinyin {
     private val SYLLABLES: Set<String> =
         INITIALS.flatMapTo(mutableSetOf()) { initial -> FINALS.map { initial + it } }
 
+    /** A syllable starting with one of these mid-word is what the apostrophe rule guards against. */
+    private val VOWELS = setOf('a', 'e', 'i', 'o', 'u', 'v')
+
     /** `zhèr`, `nǎr`: 这儿 and 哪儿 are two characters and one syllable. */
     private val CONTRACTED: Set<String> = SYLLABLES.mapTo(mutableSetOf()) { it + "r" }
 
     private const val ERHUA = '儿'
     private const val MAX_SYLLABLE = 7
-    private const val MAX_GROUP_SYLLABLES = 8
+
+    /** Only used to make the visited-state key unique; no group comes near it. */
+    private const val MAX_GROUP = 64
 
     private val LETTERS = "A-Za-züÀ-ɏḀ-ỿ"
     private val NOT_LETTER = Regex("[^$LETTERS]+")
@@ -59,15 +64,26 @@ internal object Pinyin {
      * `A:` / `B:` — dialogue cards mark their speakers on both sides.
      *
      * Not anchored to a line start: markup stripping collapses the blank line between the two
-     * turns, so by the time this runs only the first speaker is at the head of anything.
+     * turns, so by the time this runs only the first speaker is at the head of anything. Multi-
+     * letter too — one card labels its three answers `Which:` / `That:` / `This:`, and a Latin word
+     * before a colon is never part of a reading.
      */
-    private val SPEAKER = Regex("(^|\\s)[A-Za-z]\\s*[:：]")
+    private val SPEAKER = Regex("(^|\\s)[A-Za-z]+\\s*[:：]")
 
     /** `Nà/Nèi` offers two readings for one character; the first is the card's own answer. */
     private val ALTERNATIVE = Regex("([$LETTERS]+)/[$LETTERS]+")
 
-    /** `{{c1::míng}}{{c2::tiān}}` — the cloze blanks *are* the reading. */
+    /**
+     * `{{c1::míng}}{{c2::tiān}}` — the cloze blanks *are* the reading.
+     *
+     * Replaced with nothing between them, not a space: 玩儿 is blanked as `{{c1::wán}}{{c2::r}}`,
+     * and separating those leaves a bare `r`, which is not a syllable. Running them together costs
+     * nothing, because the splitter takes grouped readings apart anyway.
+     */
     private val CLOZE = Regex("\\{\\{c\\d+::(.*?)\\}\\}")
+
+    /** Some cards offer two phrasings joined by a literal `or`, on both sides of the card. */
+    private val ALTERNATION = Regex("(^|\\s)-?[oO][rR]-?($|\\s)")
 
     /**
      * One reading per Han character in [text], or null when [reading] does not fit it.
@@ -80,99 +96,85 @@ internal object Pinyin {
         val characters = ChineseText.hanOnly(text)
         if (characters.isEmpty()) return null
 
-        val normalised = ALTERNATIVE.replace(SPEAKER.replace(CLOZE.replace(reading, "$1 "), " "), "$1")
+        var normalised = CLOZE.replace(reading, "$1")
+        normalised = ALTERNATION.replace(SPEAKER.replace(normalised, " "), " ")
+        normalised = ALTERNATIVE.replace(normalised, "$1")
         val groups = NOT_LETTER.split(normalised).filter { it.isNotBlank() }
         if (groups.isEmpty()) return null
 
         val out = ArrayList<String>(characters.length)
-        return if (assign(groups, 0, characters, 0, out)) out else null
+        return if (assign(groups, characters, out)) out else null
     }
 
     /**
-     * Walks groups against characters, trying each way of cutting a group into syllables.
+     * Walks characters and reading together, trying every syllable boundary until one fits.
      *
-     * Backtracking rather than greedy, because the split of one group can only be judged by
-     * whether the rest of the sentence then fits — `zhei` and `zhe`+`i` are both spellable.
+     * One search, not a syllable-count loop feeding a separate cutter. The two-stage version could
+     * only ever see the cutter's *first* decomposition for a given count, and there are three
+     * spellings on this deck where that one is the wrong one: `zhōurì` cuts as `zhour|i` before
+     * `zhou|ri`, `Shíèryuè` as `shier|…` before `shi|er|yue`, and `sāngè` as `sāng|è` before
+     * `sān|gè`. The first two were rejected downstream and the card lost its reading entirely; the
+     * third was *accepted*, silently, because both halves are spellable syllables.
+     *
+     * Backtracking is what fixes all three, because whether a cut is right can only be judged by
+     * whether the rest of the sentence still fits. Failed states are remembered so a long sentence
+     * cannot make this exponential.
      */
     private fun assign(
         groups: List<String>,
-        groupIndex: Int,
         characters: String,
-        charIndex: Int,
         out: MutableList<String>,
     ): Boolean {
-        if (groupIndex == groups.size) return charIndex == characters.length
-        val group = groups[groupIndex]
-        val bare = toneless(group)
-        val remaining = characters.length - charIndex
-
-        for (count in 1..minOf(MAX_GROUP_SYLLABLES, remaining)) {
-            val cuts = cut(bare, count) ?: continue
-            val added = ArrayList<String>(count)
-            var offset = 0
-            var char = charIndex
-            var fits = true
-            for (length in cuts) {
-                val piece = bare.substring(offset, offset + length)
-                val spelled = group.substring(offset, offset + length)
-                offset += length
-                // A trailing -r followed by a 儿 is that 儿, always. Testing "and this is not
-                // otherwise a syllable" looked safer but is wrong: `zher` is spellable as zh + er,
-                // so 这儿 took one character instead of two and dragged the rest of the sentence
-                // out of alignment.
-                val contracted = piece in CONTRACTED &&
-                    char + 1 < characters.length && characters[char + 1] == ERHUA
-                // A spelling that is only a syllable *as* a contraction has to actually contract.
-                // `shier` is `shie` + r, so without this it passed as one syllable for one
-                // character: 十二 read as a single `shíèr`, and the syllable that went missing was
-                // taken back by splitting `màn` into `mà` + `n` further along the sentence.
-                if (piece !in SYLLABLES && !contracted) {
-                    fits = false
-                    break
-                }
-                if (char + (if (contracted) 2 else 1) > characters.length) {
-                    fits = false
-                    break
-                }
-                added += spelled
-                char++
-                if (contracted) {
-                    added += ""
-                    char++
-                }
-            }
-            if (!fits) continue
-            out += added
-            if (assign(groups, groupIndex + 1, characters, char, out)) return true
-            repeat(added.size) { out.removeAt(out.size - 1) }
-        }
-        return false
+        // Two passes. Some groups have more than one valid decomposition and the character count
+        // does not separate them — `sāngè` is both `sān|gè` and `sāng|è`, and the wrong one was
+        // being taken silently. Pinyin's own apostrophe rule is the tiebreak: a syllable starting
+        // with a vowel inside a word is exactly the case the language writes `xī'ān` to avoid, so
+        // prefer decompositions without one. 二 really is vowel-initial (`shí|èr`), which is why
+        // the restriction is a preference and not a rule.
+        return assign(groups, characters, out, strict = true) ||
+            assign(groups, characters, out, strict = false)
     }
 
-    /** Cuts [bare] into exactly [count] syllables, longest-first, or null if it cannot be done. */
-    private fun cut(bare: String, count: Int): List<Int>? {
-        if (count <= 0 || bare.isEmpty()) return null
-        val memo = HashMap<Int, List<Int>?>()
-        fun go(start: Int, left: Int): List<Int>? {
-            if (start == bare.length) return if (left == 0) emptyList() else null
-            if (left <= 0) return null
-            val key = start * (MAX_GROUP_SYLLABLES + 1) + left
-            memo[key]?.let { return it }
-            if (memo.containsKey(key)) return null
-            for (length in minOf(MAX_SYLLABLE, bare.length - start) downTo 1) {
-                val piece = bare.substring(start, start + length)
-                if (piece !in SYLLABLES && piece !in CONTRACTED) continue
-                val rest = go(start + length, left - 1)
-                if (rest != null) {
-                    val result = listOf(length) + rest
-                    memo[key] = result
-                    return result
-                }
+    private fun assign(
+        groups: List<String>,
+        characters: String,
+        out: MutableList<String>,
+        strict: Boolean,
+    ): Boolean {
+        val bare = groups.map(::toneless)
+        val dead = HashSet<Int>()
+        out.clear()
+
+        fun search(groupIndex: Int, offset: Int, charIndex: Int): Boolean {
+            if (groupIndex == groups.size) return charIndex == characters.length
+            if (offset == bare[groupIndex].length) return search(groupIndex + 1, 0, charIndex)
+            if (charIndex == characters.length) return false
+
+            val state = (groupIndex * MAX_GROUP + offset) * (characters.length + 1) + charIndex
+            if (!dead.add(state)) return false
+
+            val syllables = bare[groupIndex]
+            val longest = minOf(MAX_SYLLABLE, syllables.length - offset)
+            for (length in longest downTo 1) {
+                val piece = syllables.substring(offset, offset + length)
+                // A trailing -r followed by a 儿 is that 儿. Without the second half of this test a
+                // spelling that is only a syllable *as* a contraction — `zher` is zh + er — would
+                // take one character where it should take two.
+                val contracted = piece in CONTRACTED &&
+                    charIndex + 1 < characters.length && characters[charIndex + 1] == ERHUA
+                if (piece !in SYLLABLES && !contracted) continue
+                if (strict && offset > 0 && piece.first() in VOWELS) continue
+                val width = if (contracted) 2 else 1
+                if (charIndex + width > characters.length) continue
+
+                out += groups[groupIndex].substring(offset, offset + length)
+                if (contracted) out += ""
+                if (search(groupIndex, offset + length, charIndex + width)) return true
+                repeat(width) { out.removeAt(out.size - 1) }
             }
-            memo[key] = null
-            return null
+            return false
         }
-        return go(0, count)
+        return search(0, 0, 0)
     }
 
     /** Tone marks off, `ü` folded to `v`, so a syllable can be looked up by spelling alone. */

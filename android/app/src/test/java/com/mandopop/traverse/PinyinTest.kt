@@ -54,6 +54,23 @@ class PinyinTest {
     }
 
     @Test
+    fun `backtracks past a cut that only looks right`() {
+        // All three of these have a longest-first decomposition that is wrong. `zhour|i` and
+        // `shier|…` were rejected downstream and the card lost its reading; `sāng|è` was silently
+        // accepted, because both halves happen to be spellable syllables.
+        assertEquals(listOf("Zhōu", "rì"), align("周日", "Zhōurì"))
+        assertEquals(
+            listOf("Zhèi", "ge", "zhōu", "rì", "shì", "liù", "hào"),
+            align("这个周日是六号。", "Zhèi ge zhōurì shì liù hào."),
+        )
+        assertEquals(listOf("Shí", "èr", "yuè"), align("十二月", "Shíèryuè"))
+        assertEquals(
+            listOf("Zhè", "sān", "gè", "rén", "dōu", "hěn", "kuài"),
+            align("这三个人都很快。", "Zhè sāngè rén dōu hěn kuài."),
+        )
+    }
+
+    @Test
     fun `still gives 儿 a syllable of its own when it has one`() {
         assertEquals(listOf("ér", "zi"), align("儿子", "ér zi"))
     }
@@ -73,6 +90,33 @@ class PinyinTest {
         assertEquals(
             listOf("chī", "fàn", "le", "ma", "chī", "le"),
             align("A: 吃饭了吗？ B: 吃了。", "A: chī fàn le ma? B: chī le."),
+        )
+    }
+
+    @Test
+    fun `keeps an erhua syllable blanked across two cloze markers`() {
+        // 玩儿 is clozed as two blanks, `wán` and `r`. Separating them left a bare `r`, which is
+        // not a syllable, so the card lost its reading entirely.
+        assertEquals(listOf("wánr", ""), align("玩儿", "{{c1::wán}}{{c2::r}}"))
+    }
+
+    @Test
+    fun `reads across a card that offers two phrasings`() {
+        assertEquals(
+            listOf("hàn", "zì", "zì"),
+            align("汉字 or 字", "{{c2::hàn}}{{c1::zì}} or {{c1::zì}}"),
+        )
+        assertEquals(
+            listOf("wǒ", "jiào", "wǒ", "shì"),
+            align("我叫 -OR- 我是", "wǒ {{c1::jiào}} -OR- wǒ {{c2::shì}}"),
+        )
+    }
+
+    @Test
+    fun `strips a multi-letter label, not just a speaker initial`() {
+        assertEquals(
+            listOf("nǎ", "nà", "zhè"),
+            align("Which: 哪 That: 那 This: 这", "Which: {{c1::nǎ}} That: {{c2::nà}} This: {{c3::zhè}}"),
         )
     }
 

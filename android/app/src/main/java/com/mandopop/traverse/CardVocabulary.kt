@@ -115,10 +115,15 @@ class CardVocabulary(
         // sentence" and 知道 is a word, while 他很快吗 is four characters and is not. Dictionary
         // membership is the property that actually matters downstream — it is exactly what decides
         // whether the notification can prompt with it and Reveal can look it up.
-        val entries = dictionary.lookupBySimplified(parsed.hanzi, limit = MAX_READINGS)
+        // Asked about the bare word, and stored as the bare word when it is one. Sentence-final
+        // punctuation is part of what the card wrote, but 谢谢！ is not a dictionary headword and
+        // 谢谢 is — keeping the mark classed six real words as utterances, which barred them from
+        // the notification and left Reveal nothing to look up.
+        val bare = ChineseText.trimPunctuation(parsed.hanzi)
+        val entries = dictionary.lookupBySimplified(bare, limit = MAX_READINGS)
         return CardContentEntity(
             cardId = card.cardId,
-            hanzi = parsed.hanzi,
+            hanzi = if (entries.isEmpty()) parsed.hanzi else bare,
             pinyin = parsed.pinyin ?: entries.firstOrNull()?.pinyin,
             english = parsed.english ?: entries.takeIf { it.isNotEmpty() }?.let(::formatGloss),
             fetchedAtMs = now,

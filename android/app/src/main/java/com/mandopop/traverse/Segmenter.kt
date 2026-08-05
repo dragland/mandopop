@@ -25,6 +25,28 @@ object Segmenter {
     const val MAX_WORD_LENGTH = 4
 
     /**
+     * Real dictionary entries that, in this deck, only ever occur straddling two intended words.
+     *
+     * Longest match invents rather than omits: every constituent of these is separately in the
+     * index already, so refusing them loses nothing and removes all 17 artifacts they produced —
+     * 你妈 and 妈的 out of 你/妈妈/的, 个人 out of 二十/个/人, 不快 out of 不/快 ("not fast", 20 cards),
+     * 在那儿 out of 在/那儿 (11).
+     *
+     * A list, because the alternatives were measured and are worse: backward maximum matching and
+     * a minimise-single-characters DP each fix about five of these and break sixty, mostly by
+     * destroying the number system (二十/三 becomes 二/十三). Frequency-weighted segmentation is
+     * catastrophic, splitting 不是 and 好不好 into characters.
+     *
+     * The cost is the reverse error: if a sentence ever genuinely means "personal" by 个人, it will
+     * be missed. Missing beats inventing here — the index answers "words I have been exposed to",
+     * and a wrong entry is a wrong answer where a missing one is only an incomplete one.
+     */
+    private val NEVER_A_WORD_HERE = setOf(
+        "你妈", "妈的", "要不", "要说", "我去", "不知", "在外", "吃藕",
+        "吃的", "个人", "不快", "不大", "在那儿", "那是", "你好",
+    )
+
+    /**
      * Every multi-character substring worth testing for dictionary membership.
      *
      * Collected across all cards up front so membership resolves in a handful of batched queries
@@ -58,7 +80,8 @@ object Segmenter {
                 var length = 1
                 val longest = minOf(MAX_WORD_LENGTH, run.length - start)
                 for (candidate in longest downTo 2) {
-                    if (isWord(run.substring(start, start + candidate))) {
+                    val word = run.substring(start, start + candidate)
+                    if (word !in NEVER_A_WORD_HERE && isWord(word)) {
                         length = candidate
                         break
                     }

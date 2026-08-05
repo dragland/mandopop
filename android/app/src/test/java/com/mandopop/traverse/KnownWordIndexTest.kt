@@ -26,17 +26,43 @@ class KnownWordIndexTest {
     }
 
     @Test
-    fun `case is the whole signal, so matching without it picks the surname`() {
-        // 花's surname and its common sense share a spelling and differ only in capitalisation.
-        // A case-insensitive match finds `Huā` first and is therefore no better than no match at
-        // all — which is exactly what the first version of this did.
-        assertEquals("surname Hua", hua.first { it.pinyin.equals("huā", true) }.definitions.first())
+    fun `case cannot decide it, because a card capitalises whatever opens a sentence`() {
+        // `Huā` is how the card writes 花 at the head of a sentence, and it matches CC-CEDICT's
+        // surname row exactly. So case is not the signal — CC-CEDICT's own "surname" label is.
+        assertEquals("flower", KnownWordIndex.preferredEntry(hua, "Huā")?.definitions?.first())
         assertEquals("flower", KnownWordIndex.preferredEntry(hua, "huā")?.definitions?.first())
     }
 
     @Test
-    fun `a capitalised reading still resolves to the surname when that is what the card said`() {
-        assertEquals("surname Hua", KnownWordIndex.preferredEntry(hua, "Huā")?.definitions?.first())
+    fun `skips a cross-reference row for a real definition at the same reading`() {
+        // 和 leads with a pointer to itself, at the very reading the deck uses. It is the most
+        // common word in the deck and was glossed "old variant of 和" on 45 cards.
+        val he = listOf(
+            entry("hé", "old variant of 和[he2]"),
+            entry("Hé", "surname He"),
+            entry("hé", "(joining two nouns) and; together with"),
+        )
+
+        assertEquals(
+            "(joining two nouns) and; together with",
+            KnownWordIndex.preferredEntry(he, "hé")?.definitions?.first(),
+        )
+    }
+
+    @Test
+    fun `keeps a capitalised entry when nothing marks it a name`() {
+        // 周日 is `Zhōu rì` "Sunday" and `zhōu rì` "(dialect) weekday". Neither is a surname, so
+        // the exact spelling the card gave decides — and lowercasing it first chose the dialect.
+        val sunday = listOf(entry("Zhōu rì", "Sunday"), entry("zhōu rì", "(dialect) weekday"))
+
+        assertEquals("Sunday", KnownWordIndex.preferredEntry(sunday, "Zhōu rì")?.definitions?.first())
+    }
+
+    @Test
+    fun `refuses a word that is only a writing component`() {
+        val radical = listOf(entry("rén", "\"person\" radical in Chinese characters (Kangxi radical 9)"))
+
+        assertNull(KnownWordIndex.preferredEntry(radical, "rén"))
     }
 
     @Test
@@ -60,15 +86,15 @@ class KnownWordIndexTest {
     }
 
     @Test
-    fun `falls back to CC-CEDICT's own order when the card gave no reading`() {
-        assertEquals("surname Hua", KnownWordIndex.preferredEntry(hua, null)?.definitions?.first())
+    fun `prefers a real meaning even with no reading to go on`() {
+        assertEquals("flower", KnownWordIndex.preferredEntry(hua, null)?.definitions?.first())
         assertNull(KnownWordIndex.preferredEntry(emptyList(), "huā"))
     }
 
     @Test
-    fun `an unmatched reading does not discard the word`() {
-        // The reading came off the card and the dictionary disagrees; the word is still known, so
-        // something has to be returned rather than nothing.
-        assertEquals("surname Hua", KnownWordIndex.preferredEntry(hua, "zzz")?.definitions?.first())
+    fun `an unmatched reading does not discard the word, or reinstate the surname`() {
+        // A card typo (`tā yé hěn màn` for `yě`) matches no entry. Falling straight to the first
+        // row put back the surname bias the whole function exists to remove.
+        assertEquals("flower", KnownWordIndex.preferredEntry(hua, "zzz")?.definitions?.first())
     }
 }

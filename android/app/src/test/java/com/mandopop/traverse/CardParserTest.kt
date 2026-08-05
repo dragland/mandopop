@@ -255,7 +255,7 @@ class CardParserTest {
             EXPECTED_EXTRACTION,
             extraction.hashCode(),
         )
-        assertEquals(5, CardParser.VERSION)
+        assertEquals(7, CardParser.VERSION)
     }
 
     @Test
