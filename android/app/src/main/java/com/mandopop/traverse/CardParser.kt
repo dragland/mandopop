@@ -42,73 +42,76 @@ object CardParser {
      * republishes itself across the whole deck on the next sync. This is the only mechanism that
      * repairs a card cached as unreadable — without it, a parse bug is permanent.
      */
-    const val VERSION = 7
+    const val VERSION = 8
 
     /**
-     * Which fields hold what, per template.
+     * Which fields hold what — matched on the *fields a card has*, not on its template name.
      *
-     * [written] and [spoken] are candidates for the *pair*, not assignments — see the class note on
-     * the MSLK swap. Aliases exist because a few cards carry both `WORD` and `Word`; lookup is
-     * case-insensitive, so these only cover genuinely different names.
+     * The course has 21 templates over 55,460 cards, and three of them are named by opaque slug
+     * (`cFEA3bL9RCnkfp8nSu9x`) while being ordinary movie or vocabulary cards underneath. Keying on
+     * names would mean enumerating those and every future one; keying on the fields themselves
+     * reads all 21 today and anything sharing a shape tomorrow.
+     *
+     * [written] and [spoken] are candidates for the *pair*, not assignments. MSLK has `Chinese` and
+     * `Pinyin` swapped on most of its cards while Language Islands and TPV — 30,000 cards of the
+     * same shape — have them the right way round, so whichever field holds Han characters is the
+     * Chinese, whatever it is called.
+     *
+     * Order matters where a card has several: an MB Sentence carries both `Sentence` and `Word`,
+     * and the word is what it teaches.
      */
     private data class Layout(
         val written: Array<String>,
         val spoken: Array<String>,
         val meaning: Array<String>,
+        /** One word expected, so take the first Han run — `祭奠 1` is 祭奠 with a deck index on it. */
+        val word: Boolean = false,
     )
 
-    private val LAYOUTS = mapOf(
-        "MSLK" to Layout(
-            written = arrayOf("Chinese", "Pinyin"),
-            spoken = arrayOf("Pinyin", "Chinese"),
-            meaning = arrayOf("English Translation", "English"),
+    private val LAYOUTS = listOf(
+        // MOVIE REVIEW, and the same card under two slug templates.
+        Layout(arrayOf("HANZI"), arrayOf("PINYIN"), arrayOf("KEYWORD"), word = true),
+        // MB PM Cloze. Not `word`: some are dialogues spanning two speakers.
+        Layout(arrayOf("Characters"), arrayOf("Pinyin"), arrayOf("English")),
+        // MSLK, Language Islands (Production and Comprehension), TPV, Conversation Connectors.
+        Layout(
+            arrayOf("Chinese", "Chinese Phrase"),
+            arrayOf("Pinyin", "Chinese"),
+            arrayOf("English Translation", "English"),
         ),
-        "Cloze" to Layout(
-            written = arrayOf("Characters"),
-            spoken = arrayOf("Pinyin"),
-            meaning = arrayOf("English"),
+        // WORD CONNECTION, MB Basic, and MB Sentence — which states the word it teaches outright,
+        // so there is no need to find it by segmenting the sentence it also carries.
+        Layout(
+            arrayOf("WORD", "Word"),
+            arrayOf("PINYIN", "Pinyin"),
+            arrayOf("MEANING", "English", "Usage Definition"),
+            word = true,
         ),
-        "MOVIE" to Layout(
-            written = arrayOf("HANZI"),
-            spoken = arrayOf("PINYIN"),
-            meaning = arrayOf("KEYWORD"),
-        ),
-        "WORD CONNECTION" to Layout(
-            written = arrayOf("WORD"),
-            spoken = arrayOf("PINYIN"),
-            meaning = arrayOf("MEANING"),
-        ),
-        // PROP cards name a mnemonic prop ("Toilet"), not a translation, so the meaning is left to
-        // CC-CEDICT — which mostly has nothing either, these being strokes and components.
-        "PROP" to Layout(
-            written = arrayOf("COMPONENT"),
-            spoken = arrayOf(),
-            meaning = arrayOf(),
-        ),
+        // MB Sentence variants with no `Word`, where the taught span is marked `==like this==`.
+        Layout(arrayOf("Sentence"), arrayOf(), arrayOf("Usage Definition", "English")),
+        // PROP. Its `PROP` field names a mnemonic object, not a translation.
+        Layout(arrayOf("COMPONENT"), arrayOf(), arrayOf(), word = true),
     )
 
     /**
-     * Whether this template has a rule of its own.
+     * Whether this card has a shape we can read.
      *
-     * Callers must not fall back to the generic scan for a template that returns true here: MOVIE
-     * cards name their mnemonic props in the body (中 references 口 and 丨), and scraping those is
-     * the same failure that got ACTOR and SET excluded in the first place. Better an empty row that
-     * the parse-rate guard can see than a plausible wrong one.
+     * Templates that teach a pinyin sound rather than a word — ACTOR, SET, Minimal Pairs — carry no
+     * field on this list, so they answer false without being named. They are still excluded before
+     * the fetch, which saves the reads.
      */
-    fun handles(template: String): Boolean = layoutFor(template) != null
+    fun handles(doc: CardDoc?): Boolean = doc != null && layoutFor(doc) != null
 
-    fun parse(template: String, doc: CardDoc?): ParsedCard {
-        if (doc == null) return ParsedCard.EMPTY
-        // The document's own template beats the caller's: a card with two prompt rows has two
-        // schedule rows, and choosing one of them to decide how to read the card is arbitrary.
-        val layout = layoutFor(doc.template ?: template) ?: return ParsedCard.EMPTY
+    fun parse(doc: CardDoc?): ParsedCard {
+        val layout = doc?.let(::layoutFor) ?: return ParsedCard.EMPTY
 
         val first = doc.field(*layout.written)
         val second = doc.field(*layout.spoken)
-        val hanzi = listOfNotNull(first, second).firstOrNull(ChineseText::hasHan)
+        val written = listOfNotNull(first, second).firstOrNull(ChineseText::hasHan)
             ?.let(ChineseText::stripMarkup)
             ?.takeIf { ChineseText.hasHan(it) }
             ?: return ParsedCard.EMPTY
+        val hanzi = if (layout.word) ChineseText.hanRuns(written).first() else written
         val reading = listOfNotNull(first, second)
             .firstOrNull { !ChineseText.hasHan(it) }
             ?.let(ChineseText::stripMarkup)
@@ -120,13 +123,7 @@ object CardParser {
         )
     }
 
-    /**
-     * Matched on substrings because Traverse qualifies templates with the course in some places
-     * and not others (`/Mandarin_Blueprint/MSLK Card` vs `MSLK Card`).
-     *
-     * ACTOR and SET are absent deliberately — they teach a pinyin sound and are excluded before
-     * the fetch. Anything else yields nothing, which the coverage readout names.
-     */
-    private fun layoutFor(template: String): Layout? =
-        LAYOUTS.entries.firstOrNull { template.contains(it.key, ignoreCase = true) }?.value
+    /** The first layout whose fields this card actually has. */
+    private fun layoutFor(doc: CardDoc): Layout? =
+        LAYOUTS.firstOrNull { doc.field(*it.written) != null }
 }

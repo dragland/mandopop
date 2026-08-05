@@ -34,8 +34,17 @@ class SegmenterTest {
         // sitting across the boundary. Measured on the whole deck, fifteen such entries produced
         // every one of the index's seventeen invented words.
         assertEquals(listOf("二十", "个", "人"), textOf("二十个人", words("二十", "个人")))
-        assertEquals(listOf("不", "快"), textOf("不快", words("不快")))
+        assertEquals(listOf("他", "不", "快"), textOf("他不快", words("不快")))
         assertEquals(listOf("你", "妈妈"), textOf("你妈妈", words("你妈", "妈妈")))
+    }
+
+    @Test
+    fun `but takes one when the card states nothing else`() {
+        // 你好 is on the list only because 你好不好 straddles it. It is also taught on two cards of
+        // its own, and a list that contradicts the deck is worse than the artifact it prevents.
+        assertEquals(listOf("你好"), textOf("你好", words("你好")))
+        assertEquals(listOf("那是"), textOf("那是", words("那是")))
+        assertEquals(listOf("你", "好不好"), textOf("你好不好", words("你好", "好不好")))
     }
 
     @Test

@@ -107,18 +107,16 @@ class CardVocabulary(
             fetchedAtMs = now,
             parserVersion = CardParser.VERSION,
         )
-        val parsed = CardParser.parse(card.template, doc)
+        val parsed = CardParser.parse(doc)
         if (parsed.hanzi == null) return blank
 
-        // Whether this is a headword or an utterance is decided by CC-CEDICT, not by length or by
-        // template. Both heuristics were wrong in opposite directions: MSLK was marked "always a
-        // sentence" and 知道 is a word, while 他很快吗 is four characters and is not. Dictionary
-        // membership is the property that actually matters downstream — it is exactly what decides
-        // whether the notification can prompt with it and Reveal can look it up.
-        // Asked about the bare word, and stored as the bare word when it is one. Sentence-final
-        // punctuation is part of what the card wrote, but 谢谢！ is not a dictionary headword and
-        // 谢谢 is — keeping the mark classed six real words as utterances, which barred them from
-        // the notification and left Reveal nothing to look up.
+        // Headword or utterance is decided by CC-CEDICT, not by length or template — both of those
+        // heuristics were wrong in opposite directions, marking 知道 a sentence and 他很快吗 a word.
+        // Membership is the property that actually matters: it is what decides whether the
+        // notification can prompt with the card and whether Reveal can look the answer up.
+        //
+        // Asked about the bare word, and stored bare when it is one. 谢谢！ is not a headword and
+        // 谢谢 is, so keeping the mark classed six real words as utterances.
         val bare = ChineseText.trimPunctuation(parsed.hanzi)
         val entries = dictionary.lookupBySimplified(bare, limit = MAX_READINGS)
         return CardContentEntity(
@@ -185,7 +183,6 @@ class CardVocabulary(
          */
         internal fun brokenTemplate(outcomes: List<Outcome>): String? {
             for ((template, cards) in outcomes.groupBy { it.template }) {
-                if (!CardParser.handles(template)) continue
                 val read = cards.count { it.read }
                 // Reading *none* of a template is a break at any size — WORD CONNECTION has six
                 // cards and would otherwise never be watched at all. Above that only a collapse

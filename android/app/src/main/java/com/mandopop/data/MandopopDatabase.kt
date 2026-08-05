@@ -16,12 +16,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Cards that teach a pinyin sound rather than a word.
  *
+ * Minimal Pairs joins ACTOR and SET here: its fields are `Word 1`..`Word 3` holding `ji2`, `qi2`,
+ * `xi2` — tone drills with no characters at all. Found by reading the whole course rather than the
+ * part of it this account has unlocked.
+ *
  * Shared by every query that has an opinion about them, because they must agree exactly: one query
  * fetching what another deletes is a loop against a third party's read quota. Matched on a suffix
  * because Traverse prefixes templates with the course in some places and not others.
  */
 private const val SOUND_ONLY =
-    "template LIKE '%ACTOR REVIEW' OR template LIKE '%SET REVIEW'"
+    "template LIKE '%ACTOR REVIEW' OR template LIKE '%SET REVIEW' OR template LIKE '%Minimal Pairs'"
 
 @Dao
 interface ScheduleDao {

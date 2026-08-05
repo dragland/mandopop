@@ -50,11 +50,12 @@ class CardVocabularyTest {
     }
 
     @Test
-    fun `templates with no layout are not watched`() {
-        // ACTOR and SET never reach the parser, and an unmapped template yielding nothing is
-        // reported by the coverage readout, not by an error the user cannot act on.
-        assertNull(brokenTemplate(cards("/Mandarin_Blueprint/ACTOR REVIEW", total = 24, read = 0)))
-        assertNull(brokenTemplate(cards("SOMETHING NEW", total = 50, read = 0)))
+    fun `every template that was fetched is watched`() {
+        // Cards teaching a pinyin sound are excluded before the fetch, so anything that got this
+        // far should have been readable. A template nobody has mapped reading nothing is exactly
+        // the thing worth being told about — it is how the next 30,000 Language Islands cards
+        // would have announced themselves.
+        assertNotNull(brokenTemplate(cards("SOMETHING NEW", total = 50, read = 0)))
     }
 
     @Test

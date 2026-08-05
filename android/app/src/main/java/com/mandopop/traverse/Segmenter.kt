@@ -37,9 +37,13 @@ object Segmenter {
      * destroying the number system (二十/三 becomes 二/十三). Frequency-weighted segmentation is
      * catastrophic, splitting 不是 and 好不好 into characters.
      *
-     * The cost is the reverse error: if a sentence ever genuinely means "personal" by 个人, it will
-     * be missed. Missing beats inventing here — the index answers "words I have been exposed to",
-     * and a wrong entry is a wrong answer where a missing one is only an incomplete one.
+     * It applies only to a match *inside* a longer run. A card that states 你好 or 那是 on its own
+     * is stating a word, and the list must not contradict the deck — which it did: both are taught
+     * outright here, and excluding them outright deleted two words the user plainly knows.
+     *
+     * The remaining cost is the reverse error: if a sentence ever genuinely means "personal" by
+     * 个人, it will be missed. Missing beats inventing — the index answers "words I have been
+     * exposed to", and a wrong entry is a wrong answer where a missing one is merely incomplete.
      */
     private val NEVER_A_WORD_HERE = setOf(
         "你妈", "妈的", "要不", "要说", "我去", "不知", "在外", "吃藕",
@@ -81,7 +85,8 @@ object Segmenter {
                 val longest = minOf(MAX_WORD_LENGTH, run.length - start)
                 for (candidate in longest downTo 2) {
                     val word = run.substring(start, start + candidate)
-                    if (word !in NEVER_A_WORD_HERE && isWord(word)) {
+                    val whole = start == 0 && candidate == run.length
+                    if ((whole || word !in NEVER_A_WORD_HERE) && isWord(word)) {
                         length = candidate
                         break
                     }
