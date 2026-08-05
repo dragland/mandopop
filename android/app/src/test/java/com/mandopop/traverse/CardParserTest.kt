@@ -207,7 +207,9 @@ class CardParserTest {
                 "Chinese" to "我不想练健美。", "Pinyin" to "Wǒ bùxiǎng liàn jiànměi.",
                 "English Translation" to "I don't want to bodybuild."),
         ).hanzi)
-        assertEquals("祭奠", CardParser.parse(
+        // The sentence, not the `Word` it also carries: the taught word is inside it either way,
+        // and keeping the sentence is worth 1,203 more words across the course.
+        assertEquals("清明节是中国人祭奠先人的节日。", CardParser.parse(
             doc("MB Sentence", "清明节是中国人祭奠先人的节日。",
                 "Sentence" to "清明节是中国人==祭奠==先人的节日。", "Word" to "祭奠 1",
                 "Usage Definition" to "用法 1 - v. to offer sacrifices"),
@@ -250,7 +252,7 @@ class CardParserTest {
             EXPECTED_EXTRACTION,
             extraction.hashCode(),
         )
-        assertEquals(8, CardParser.VERSION)
+        assertEquals(9, CardParser.VERSION)
     }
 
     @Test

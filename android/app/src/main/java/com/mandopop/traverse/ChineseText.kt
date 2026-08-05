@@ -47,6 +47,9 @@ internal object ChineseText {
     /** `\\-OR-` — cards escape markdown punctuation, and the backslash is not part of the text. */
     private val ESCAPE = Regex("\\\\(.)")
 
+    /** `==祭奠==` — MB Sentence highlights the word a sentence teaches; the marks are not text. */
+    private val HIGHLIGHT = Regex("==+")
+
     /** `在（1）` — a deck-authoring suffix that disambiguates two cards teaching the same word. */
     private val DISAMBIGUATOR = Regex("[（(]\\s*\\d+\\s*[）)]\\s*$")
 
@@ -93,6 +96,7 @@ internal object ChineseText {
      */
     fun stripMarkup(value: String): String {
         var text = ESCAPE.replace(MARKDOWN_LINK.replace(HTML_TAG.replace(value, " "), " "), "$1")
+        text = HIGHLIGHT.replace(text, "")
         for ((entity, replacement) in ENTITIES) text = text.replace(entity, replacement)
         return WHITESPACE.replace(text, " ").trim()
     }

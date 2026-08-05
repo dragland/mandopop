@@ -27,6 +27,12 @@ class ChineseTextTest {
     }
 
     @Test
+    fun `drops the marks highlighting a sentence's target word`() {
+        assertEquals("清明节是中国人祭奠先人的节日。", ChineseText.stripMarkup("清明节是中国人==祭奠==先人的节日。"))
+        assertEquals("bízi", ChineseText.stripMarkup("==bízi=="))
+    }
+
+    @Test
     fun `keeps digits, which are not punctuation`() {
         assertEquals("1776年", ChineseText.trimPunctuation("1776年"))
     }

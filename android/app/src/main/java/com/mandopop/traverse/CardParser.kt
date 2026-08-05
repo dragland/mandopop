@@ -42,7 +42,7 @@ object CardParser {
      * republishes itself across the whole deck on the next sync. This is the only mechanism that
      * repairs a card cached as unreadable — without it, a parse bug is permanent.
      */
-    const val VERSION = 8
+    const val VERSION = 9
 
     /**
      * Which fields hold what — matched on the *fields a card has*, not on its template name.
@@ -79,16 +79,17 @@ object CardParser {
             arrayOf("Pinyin", "Chinese"),
             arrayOf("English Translation", "English"),
         ),
-        // WORD CONNECTION, MB Basic, and MB Sentence — which states the word it teaches outright,
-        // so there is no need to find it by segmenting the sentence it also carries.
+        // MB Sentence, which carries both a `Sentence` and the `Word` it is teaching. Taking the
+        // sentence rather than the word is worth +1,203 distinct words across the course and loses
+        // five, because the taught word is inside the sentence anyway — measured, not assumed.
+        Layout(arrayOf("Sentence"), arrayOf(), arrayOf("Usage Definition", "English")),
+        // WORD CONNECTION and MB Basic, which state a word and nothing to put it in.
         Layout(
             arrayOf("WORD", "Word"),
             arrayOf("PINYIN", "Pinyin"),
             arrayOf("MEANING", "English", "Usage Definition"),
             word = true,
         ),
-        // MB Sentence variants with no `Word`, where the taught span is marked `==like this==`.
-        Layout(arrayOf("Sentence"), arrayOf(), arrayOf("Usage Definition", "English")),
         // PROP. Its `PROP` field names a mnemonic object, not a translation.
         Layout(arrayOf("COMPONENT"), arrayOf(), arrayOf(), word = true),
     )
