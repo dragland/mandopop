@@ -3,15 +3,17 @@ package com.mandopop.traverse
 import android.util.Log
 import com.mandopop.data.CardContentDao
 import com.mandopop.data.CardContentEntity
+import com.mandopop.data.PendingCard
 import com.mandopop.dictionary.CedictEntry
 import com.mandopop.dictionary.DictionaryRepository
+import kotlinx.coroutines.delay
 
 /**
- * Recovers the word each Traverse card teaches, and caches it.
+ * Recovers what each Traverse card teaches, and caches it.
  *
- * Most cards identify themselves by an opaque id rather than by hanzi, so the characters have to
- * come from the card document and then be confirmed against the dictionary — CC-CEDICT membership
- * is what separates a real word from a mnemonic prop.
+ * Cards identify themselves by an opaque id rather than by hanzi, so the content has to come from
+ * the card document, where [CardParser] reads it by field name. CC-CEDICT then decides whether what
+ * came back is a headword or an utterance.
  */
 class CardVocabulary(
     private val firestore: FirestoreRest,
@@ -20,63 +22,123 @@ class CardVocabulary(
 ) {
 
     /**
-     * Resolves a bounded batch of due cards.
+     * The result of a drain: whether anything was written, and what went wrong if anything did.
      *
-     * Fetching the whole deck at once would stall a sync and spend ~900 reads on Traverse's
-     * project, so this trickles: only cards that are due, only ones never looked at, capped per
-     * run. Every outcome is cached — including "no word here" — so nothing is fetched twice.
+     * The failure is returned rather than thrown so the caller can still derive the word index from
+     * whatever *was* read before reporting it. Throwing from inside the drain skipped that, and a
+     * one-shot guard that also suppresses the rebuild leaves the index stale with nothing to
+     * retrigger it.
      */
-    suspend fun backfill(author: String, boundaryMs: Long, batchSize: Int) {
+    data class Backfill(val changed: Boolean, val failure: TraverseException? = null)
+
+    /**
+     * Brings the content cache up to date.
+     *
+     * The trigger is an invariant — every card that is not a pinyin drill should have a content row
+     * at the current [CardParser.VERSION] — rather than a job, so it satisfies itself on install,
+     * on sign-in, when a lesson unlocks and after a parser fix, with no first-run flag to forget.
+     *
+     * [limit] is a runaway guard, not pacing: cached negatives already stop anything being fetched
+     * twice, and the whole deck drains in a handful of batched requests.
+     */
+    suspend fun backfill(limit: Int): Backfill {
         dao.deleteSoundOnlyCards().let {
             if (it > 0) Log.i(TAG, "Dropped $it pinyin-card words scraped from mnemonics")
         }
 
-        val pending = dao.dueCardsMissingContent(boundaryMs, batchSize)
-        if (pending.isEmpty()) return
+        val pending = dao.cardsNeedingContent(CardParser.VERSION, limit)
+        if (pending.isEmpty()) return Backfill(changed = false)
 
-        val now = System.currentTimeMillis()
-        val resolved = mutableListOf<CardContentEntity>()
-        for (cardId in pending) {
-            val doc = try {
-                firestore.card(author, cardId)
-            } catch (error: TraverseException) {
-                Log.w(TAG, "Card content fetch failed for $cardId: ${error.message}")
-                break // Likely auth or rules; stop the batch rather than burn the rest on failures.
+        Log.i(TAG, "Fetching content for ${pending.size} cards")
+        val outcomes = mutableListOf<Outcome>()
+        var changed = false
+        // Persisted a chunk at a time, so a worker cut short mid-drain keeps what it read and the
+        // invariant simply asks for the rest next run. Grouped by author first, because a batchGet
+        // addresses one collection.
+        val chunks = pending.groupBy { it.authorUserName }
+            .flatMap { (author, cards) ->
+                cards.chunked(FirestoreRest.CARD_BATCH_SIZE).map { author to it }
             }
-            resolved += resolve(cardId, doc, now)
-        }
 
-        if (resolved.isNotEmpty()) {
-            dao.putAll(resolved)
-            Log.i(TAG, "Resolved ${resolved.count { it.english != null }}/${resolved.size} cards")
-        }
-    }
+        for ((index, batch) in chunks.withIndex()) {
+            val (author, chunk) = batch
+            if (index > 0) delay(FirestoreRest.CARD_BATCH_PAUSE_MS)
+            val documents = firestore.cards(author, chunk.map { it.cardId })
 
-    private suspend fun resolve(cardId: String, doc: CardDoc?, now: Long): CardContentEntity {
-        // A hanzi-named card is its own answer, so the id is offered as a candidate too.
-        val candidates = HanziExtractor.candidates(
-            primary = doc?.title ?: cardId,
-            others = doc?.strings.orEmpty() + cardId,
-        )
-
-        var entity = CardContentEntity(cardId, null, null, null, now)
-        for (candidate in candidates) {
-            val entries = dictionary.lookupBySimplified(candidate, limit = MAX_READINGS)
-            if (entries.isNotEmpty()) {
-                return CardContentEntity(
-                    cardId = cardId,
-                    hanzi = entries.first().simplified,
-                    pinyin = entries.first().pinyin,
-                    english = formatGloss(entries),
-                    fetchedAtMs = now,
+            // Checked before anything is written. A systemic zero-document response — a renamed
+            // collection, a wrong author — is neither a real 404 nor a parse failure, and caching
+            // it at the current version would mark the whole deck permanently answered.
+            val missing = chunk.count { documents[it.cardId] == null }
+            if (missing * 2 > chunk.size && chunk.size >= MIN_SAMPLE) {
+                return Backfill(
+                    changed = changed,
+                    failure = TraverseException(
+                        "Traverse returned no document for $missing of ${chunk.size} cards",
+                    ),
                 )
             }
-            // Remember the characters even when the dictionary does not know them, so the card is
-            // not refetched and a later dictionary update can still resolve it.
-            if (entity.hanzi == null) entity = entity.copy(hanzi = candidate)
+
+            val now = System.currentTimeMillis()
+            val resolved = chunk.map { card -> resolve(card, documents[card.cardId], now) }
+            dao.putAll(resolved)
+            changed = true
+            chunk.forEachIndexed { position, card ->
+                outcomes += Outcome(card.template, resolved[position].hanzi != null)
+            }
         }
-        return entity
+        return Backfill(changed = changed, failure = report(outcomes))
     }
+
+    /**
+     * Reads one card, falling back to the dictionary for anything it did not state.
+     *
+     * There is deliberately no generic fallback for a template with no rule. Scanning an unknown
+     * card for Han and letting CC-CEDICT arbitrate produced *something* for every card, which is
+     * the problem: an unmapped template would quietly contribute mnemonic props as vocabulary
+     * instead of showing up as unreadable. An empty row is the louder answer, and the coverage
+     * readout names it.
+     */
+    private suspend fun resolve(card: PendingCard, doc: CardDoc?, now: Long): CardContentEntity {
+        val blank = CardContentEntity(
+            cardId = card.cardId,
+            hanzi = null,
+            pinyin = null,
+            english = null,
+            fetchedAtMs = now,
+            parserVersion = CardParser.VERSION,
+        )
+        val parsed = CardParser.parse(doc)
+        if (parsed.hanzi == null) return blank
+
+        // Headword or utterance is decided by CC-CEDICT, not by length or template — both of those
+        // heuristics were wrong in opposite directions, marking 知道 a sentence and 他很快吗 a word.
+        // Membership is the property that actually matters: it is what decides whether the
+        // notification can prompt with the card and whether Reveal can look the answer up.
+        //
+        // Asked about the bare word, and stored bare when it is one. 谢谢！ is not a headword and
+        // 谢谢 is, so keeping the mark classed six real words as utterances.
+        val bare = ChineseText.trimPunctuation(parsed.hanzi)
+        val entries = dictionary.lookupBySimplified(bare, limit = MAX_READINGS)
+        return CardContentEntity(
+            cardId = card.cardId,
+            hanzi = if (entries.isEmpty()) parsed.hanzi else bare,
+            pinyin = parsed.pinyin ?: entries.firstOrNull()?.pinyin,
+            english = parsed.english ?: entries.takeIf { it.isNotEmpty() }?.let(::formatGloss),
+            fetchedAtMs = now,
+            parserVersion = CardParser.VERSION,
+            isSentence = entries.isEmpty(),
+        )
+    }
+
+    /** Logs what each template yielded, and names the one that collapsed. */
+    private fun report(outcomes: List<Outcome>): TraverseException? {
+        for ((template, cards) in outcomes.groupBy { it.template }) {
+            Log.i(TAG, "$template: ${cards.count { it.read }}/${cards.size} read")
+        }
+        return brokenTemplate(outcomes)?.let(::TraverseException)
+    }
+
+    internal data class Outcome(val template: String, val read: Boolean)
 
     /** Re-resolved on demand, so revealing an answer needs no stored state that could go stale. */
     suspend fun glossFor(hanzi: String): String? {
@@ -94,10 +156,46 @@ class CardVocabulary(
             "${entry.pinyin}  ${entry.definitions.take(MAX_SENSES).joinToString("; ")}"
         }
 
-    private companion object {
+    internal companion object {
         const val TAG = "CardVocabulary"
         const val MAX_READINGS = 3
         const val MAX_SENSES = 2
         const val READING_SEPARATOR = "  /  "
+
+        /** Below this a failure *rate* is noise — a handful of genuinely odd cards, not a break. */
+        const val MIN_SAMPLE = 20
+
+        /** But reading nothing at all is a break, and needs only enough cards to not be a fluke. */
+        const val MIN_COLLAPSE = 3
+
+        /**
+         * The first template whose extraction collapsed, as a message, or null.
+         *
+         * The index is the foundation for every immersion feature, so under-coverage has to be
+         * loud — a quietly half-filled table would poison everything built on it and look exactly
+         * like a user who has studied less.
+         *
+         * Rows are already written by the time this runs, deliberately: they carry the parser
+         * version that produced them, so fixing the parser refetches them anyway, and discarding
+         * them would just re-spend the reads. The consequence is that the error fires once per
+         * version, and the durable signal is the coverage readout — which is why that readout
+         * names unreadable cards outright rather than showing a ratio.
+         */
+        internal fun brokenTemplate(outcomes: List<Outcome>): String? {
+            for ((template, cards) in outcomes.groupBy { it.template }) {
+                val read = cards.count { it.read }
+                // Reading *none* of a template is a break at any size — WORD CONNECTION has six
+                // cards and would otherwise never be watched at all. Above that only a collapse
+                // counts: measured yields are 100% everywhere except PROP's 31/32, so a tighter
+                // rate would fire on a handful of odd cards that coverage already names.
+                val broken = read == 0 && cards.size >= MIN_COLLAPSE ||
+                    cards.size >= MIN_SAMPLE && read * 2 < cards.size
+                if (broken) {
+                    return "Could not read $template on ${cards.size - read} of " +
+                        "${cards.size} cards — card layout changed?"
+                }
+            }
+            return null
+        }
     }
 }

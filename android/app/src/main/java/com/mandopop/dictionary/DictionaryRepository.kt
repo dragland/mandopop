@@ -79,6 +79,85 @@ class DictionaryRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Which of [words] CC-CEDICT actually contains.
+     *
+     * Segmenting the deck's sentences tests thousands of candidate substrings, and a point query
+     * each would mean thousands of round trips for a question that is one indexed scan per chunk.
+     * Membership only — callers that need the entry itself still go through [lookupBySimplified].
+     */
+    suspend fun knownSimplified(words: Collection<String>): Set<String> {
+        if (words.isEmpty()) return emptySet()
+        return withContext(Dispatchers.IO) {
+            try {
+                val found = mutableSetOf<String>()
+                for (chunk in words.distinct().chunked(MEMBERSHIP_CHUNK)) {
+                    val placeholders = chunk.joinToString(",") { "?" }
+                    val sql = "SELECT DISTINCT simplified FROM entries WHERE simplified IN ($placeholders)"
+                    getDatabase().rawQuery(sql, chunk.toTypedArray()).use { cursor ->
+                        while (cursor.moveToNext()) found += cursor.getString(0)
+                    }
+                }
+                found
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Dictionary membership query failed", error)
+                emptySet()
+            }
+        }
+    }
+
+    /**
+     * Entries for many hanzi in one pass, keyed by written form.
+     *
+     * Same reason as [knownSimplified]: rebuilding the known-word index needs an entry for every
+     * word it holds, and asking one at a time is hundreds of round trips for what is a handful of
+     * indexed scans. Row order within each word is preserved, so callers still see CC-CEDICT's
+     * ordering and can apply their own tiebreak.
+     */
+    suspend fun entriesBySimplified(
+        words: Collection<String>,
+        limitPerWord: Int = 3,
+    ): Map<String, List<CedictEntry>> {
+        if (words.isEmpty()) return emptyMap()
+        return withContext(Dispatchers.IO) {
+            try {
+                val found = mutableMapOf<String, MutableList<CedictEntry>>()
+                for (chunk in words.distinct().chunked(MEMBERSHIP_CHUNK)) {
+                    val placeholders = chunk.joinToString(",") { "?" }
+                    val sql = """
+                        SELECT simplified, pinyin, definitions
+                        FROM entries
+                        WHERE simplified IN ($placeholders)
+                        ORDER BY id
+                    """.trimIndent()
+                    getDatabase().rawQuery(sql, chunk.toTypedArray()).use { cursor ->
+                        val simplifiedIndex = cursor.getColumnIndexOrThrow("simplified")
+                        val pinyinIndex = cursor.getColumnIndexOrThrow("pinyin")
+                        val definitionsIndex = cursor.getColumnIndexOrThrow("definitions")
+                        while (cursor.moveToNext()) {
+                            val key = cursor.getString(simplifiedIndex)
+                            val entries = found.getOrPut(key) { mutableListOf() }
+                            if (entries.size >= limitPerWord) continue
+                            entries += CedictEntry(
+                                simplified = key,
+                                pinyin = cursor.getString(pinyinIndex),
+                                definitions = parseDefinitions(cursor.getString(definitionsIndex)),
+                            )
+                        }
+                    }
+                }
+                found
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Bulk reverse dictionary lookup failed", error)
+                emptyMap()
+            }
+        }
+    }
+
     private fun querySimplified(hanzi: String, limit: Int): List<CedictEntry> {
         val db = getDatabase()
         val entries = mutableListOf<CedictEntry>()
@@ -219,5 +298,7 @@ class DictionaryRepository(private val context: Context) {
         private const val KEY_COPIED_HASH = "copied_hash"
         // Must match SCHEMA_VERSION in android/scripts/build_dictionary.py.
         private const val EXPECTED_USER_VERSION = 2
+        /** SQLite's default parameter ceiling is 999; this keeps well clear of it. */
+        private const val MEMBERSHIP_CHUNK = 400
     }
 }

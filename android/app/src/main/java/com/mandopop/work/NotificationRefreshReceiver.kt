@@ -18,7 +18,9 @@ import kotlinx.coroutines.launch
  *  - **Dismissal.** Android 14 changed `FLAG_ONGOING_EVENT` so users *can* swipe ongoing
  *    notifications away; there is no longer any flag that makes one truly permanent. Re-posting
  *    from the delete intent is the only way to honour "persistent until the queue is empty", and
- *    it stays honest because it stops the moment the count reaches zero.
+ *    it stays honest because it stops the moment the count reaches zero. The swipe also doubles
+ *    as the app's manual refresh, since it is the only gesture that forces a full pull without
+ *    opening the settings screen.
  *  - **App update.** A posted notification stores its icon as a bare resource id and SystemUI
  *    caches the resolved drawable, so a notification surviving an update can render the previous
  *    build's artwork. Re-posting rebinds it.
@@ -49,21 +51,30 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
                 if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
                     SyncWorker.ensureScheduled(appContext)
 
-                    // A schema upgrade drops the local mirror (it is a cache of remote state, so
-                    // destructive migration is safe). Refill it here rather than leaving the user
-                    // on an empty "0 due" until the next periodic run.
+                    // A schema upgrade with no written migration drops the local mirror. Refill it
+                    // rather than leaving the user on an empty "0 due" until the next periodic run
+                    // — but hand it to the worker. That refill now includes a full ~940-document
+                    // content drain, and a background broadcast's window is about a minute even
+                    // with goAsync(); the worker posts the result when it lands.
                     if (sync.localLiveCount() == 0) {
-                        val outcome = sync.sync()
-                        Log.i(TAG, "post-update refill: $outcome")
-                        DueNotifier.show(appContext, outcome)
+                        Log.i(TAG, "post-update refill: enqueueing full sync")
+                        SyncWorker.syncNow(appContext, force = true)
                         return@launch
                     }
                 }
-                // Local counts only — neither a swipe nor an update is a reason to spend a
-                // Firestore read.
+                // Re-post from local counts first, so the notification never visibly disappears
+                // while a network round trip is in flight.
                 val due = sync.localDueCount()
                 Log.i(TAG, "refresh after $action: due=$due")
                 DueNotifier.repost(appContext, due, sync.localLiveCount(), sync.localExample())
+
+                // A swipe then doubles as the refresh gesture, saving a trip into the settings
+                // screen. Forced on purpose: the events heartbeat only moves when a review is
+                // answered, so an unforced sync here would usually decide nothing had changed and
+                // re-post the same number the user just swiped away. The worker posts the result.
+                if (action == ACTION_DISMISSED) {
+                    SyncWorker.syncNow(appContext, force = true)
+                }
             } catch (error: Exception) {
                 Log.e(TAG, "Notification refresh failed", error)
                 DueNotifier.showError(appContext, error.message ?: "Notification refresh failed")

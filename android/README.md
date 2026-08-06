@@ -78,14 +78,16 @@ Sign in from the app's settings screen. The password is exchanged once for a ref
 token, which Tink encrypts under an Android Keystore master key before it is written to
 DataStore; the password itself is never persisted. Sign Out clears the token, the local mirror, and the notification.
 
-- Syncs on a periodic worker, on leaving the Traverse app, on app open, and after an
-  app update. A routine sync is one Firestore read — the full deck is pulled only when
+- Syncs on a periodic worker, on leaving the Traverse app, on app open, on swiping the
+  due notification away, and after an app update. A routine sync is one Firestore read — the full deck is pulled only when
   the day rolls over, the day's review count changes, or the mirror is over 6h stale.
 - The notification shows the bare hanzi of a due card, with a `Reveal` action for the
   reading and meaning. It is silent, cannot be swiped away while cards are due, and
   disappears on its own once the queue is empty.
-- Local state lives in `mandopop.db` and is a cache of remote state, so schema changes
-  drop it deliberately; the next sync refills it.
+- Local state lives in `mandopop.db` and is a cache of remote state, so a schema change
+  with no written migration drops it and the next sync refills it. `card_content` is the
+  exception and now has a real migration: refilling it costs ~940 reads on Traverse's
+  project, so it is no longer cheap to throw away.
 
 mandopop is an unofficial client using the user's own credentials. A schema change on
 Traverse's side breaks sync, which is why the integration is kept thin and confined to

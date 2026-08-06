@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mandopop.R
 import com.mandopop.notification.DueNotifier
+import com.mandopop.traverse.Coverage
 import com.mandopop.traverse.SyncOutcome
 import com.mandopop.traverse.TraverseSync
 import com.mandopop.work.SyncWorker
@@ -69,6 +70,7 @@ internal fun TraversePanel(
     var status by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var dueCount by remember { mutableIntStateOf(-1) }
+    var coverage by remember { mutableStateOf<Coverage?>(null) }
     // Optional and advanced, so it stays folded away until asked for — but opens itself if the
     // link needs attention, since a silent broken sync is worse than a bit of clutter.
     var expanded by remember { mutableStateOf(false) }
@@ -83,6 +85,7 @@ internal fun TraversePanel(
         runCatching {
             error = sync.state().lastError
             dueCount = sync.localDueCount()
+            coverage = sync.localCoverage()
         }
         if (error != null) expanded = true
     }
@@ -148,23 +151,51 @@ internal fun TraversePanel(
                 fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace,
             )
+            // Reading the deck is what every other feature is built on, and an incomplete index
+            // looks identical to having studied less — so the state is named rather than left as a
+            // ratio to diff. "Indexed" deliberately avoids "read", which in this app means pinyin.
+            coverage?.takeIf { it.eligible > 0 }?.let {
+                Text(
+                    text = "${it.words} words · " + when {
+                        it.fetched < it.eligible -> "indexing ${it.fetched} of ${it.eligible} cards"
+                        it.readable < it.eligible ->
+                            "${it.eligible - it.readable} of ${it.eligible} cards unreadable"
+                        else -> "all ${it.eligible} cards indexed"
+                    },
+                    color = MutedText,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = {
                         scope.launch {
                             busy = true
                             error = null
-                            status = null
+                            // Reading the deck for the first time takes the better part of a
+                            // minute, and a spinner with no caption is indistinguishable from a
+                            // hang. Say which of the two waits this is.
+                            status = if (coverage?.let { it.fetched < it.eligible } != false) {
+                                "Reading your deck — this can take a minute"
+                            } else {
+                                "Syncing…"
+                            }
                             try {
                                 val outcome = sync.sync(force = true)
                                 when (outcome) {
                                     is SyncOutcome.Success -> {
                                         dueCount = outcome.dueCount
-                                        status = "Synced ${outcome.liveCount} cards"
+                                        // Not a count: `liveCount` is prompt rows, which read as a
+                                        // second, smaller "cards" number next to the coverage line.
+                                        status = "Synced"
                                     }
                                     is SyncOutcome.Failure -> error = outcome.message
                                     is SyncOutcome.NotSignedIn -> signedIn = false
                                 }
+                                // Refreshed whatever the outcome: a sync that fails part-way still
+                                // moves coverage, and that is exactly when it is worth reading.
+                                runCatching { coverage = sync.localCoverage() }
                                 DueNotifier.show(context, outcome)
                             } catch (cancellation: CancellationException) {
                                 throw cancellation
@@ -238,12 +269,13 @@ internal fun TraversePanel(
                             when (val outcome = sync.sync(force = true)) {
                                 is SyncOutcome.Success -> {
                                     dueCount = outcome.dueCount
-                                    status = "Synced ${outcome.liveCount} cards"
+                                    status = "Synced"
                                     DueNotifier.show(context, outcome)
                                 }
                                 is SyncOutcome.Failure -> error = outcome.message
                                 is SyncOutcome.NotSignedIn -> signedIn = false
                             }
+                            runCatching { coverage = sync.localCoverage() }
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (failure: Exception) {

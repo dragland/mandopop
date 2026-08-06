@@ -59,6 +59,16 @@ android {
     }
 }
 
+// Room writes the expected schema here on every build, and the JSON is committed. Card content is
+// now expensive to refill (~940 reads on Traverse's project), so migrations have to be written
+// rather than fallen back from — and a migration cannot be written, or checked, without knowing
+// exactly what Room expects the database to look like afterwards.
+ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
+// MigrationTestHelper reads the exported schemas off the device, so they have to ship with the
+// test APK rather than only existing on the build machine.
+android.sourceSets["androidTest"].assets.srcDir("$projectDir/schemas")
+
 val dictionaryInput = rootProject.layout.projectDirectory.file("../cedict.json")
 val generatedDictionaryDir = layout.buildDirectory.dir("generated/assets/dictionary")
 val dictionaryOutput = generatedDictionaryDir.map { it.file("cedict.db") }
@@ -131,4 +141,7 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    // A migration that disagrees with Room throws at first database open, not at build time, so
+    // the only cheap way to find out is to run it against the exported schemas.
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
 }

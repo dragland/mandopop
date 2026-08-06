@@ -116,8 +116,9 @@ bash scripts/generate_icons.sh
 
 ## Roadmap
 
-The Android app knows which words I know. Nothing reads that yet except the due-card notification.
-Next, roughly in order — each unlocks the one after:
+The Android app knows which words I know: it reads my whole flashcard deck and keeps a
+`known_words` index. Nothing consumes that index yet except a coverage readout in settings; the
+due-card notification reads the cards directly. Next, roughly in order — each unlocks the one after:
 
 - **SRS-aware lookups** — the selection overlay showing recall state ("reviewed 4×, due tomorrow").
 - **Tap-anywhere reading mode** — read on-screen text from the accessibility tree instead of
@@ -127,8 +128,6 @@ Next, roughly in order — each unlocks the one after:
   this fights scrolling and reflow. One allowlisted app first.
 - **Writing chip** — live-translate a sentence above the keyboard. Needs on-device NMT (ML Kit);
   independent of the others.
-- **Vocabulary sweep** — card content currently resolves only for cards that are *due*. The
-  features above want the whole deck.
 
 ## License
 
