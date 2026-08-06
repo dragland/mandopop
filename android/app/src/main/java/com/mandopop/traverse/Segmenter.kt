@@ -25,25 +25,29 @@ object Segmenter {
     const val MAX_WORD_LENGTH = 4
 
     /**
-     * Real dictionary entries that, in this deck, only ever occur straddling two intended words.
+     * Real dictionary entries that this course never teaches, and that longest match invents.
      *
-     * Longest match invents rather than omits: every constituent of these is separately in the
-     * index already, so refusing them loses nothing and removes all 17 artifacts they produced —
-     * 你妈 and 妈的 out of 你/妈妈/的, 个人 out of 二十/个/人, 不快 out of 不/快 ("not fast", 20 cards),
-     * 在那儿 out of 在/那儿 (11).
+     * Longest match does not omit, it invents: 你妈 and 妈的 out of 你/妈妈/的, 个人 out of 二十/个/人,
+     * 不快 out of 不/快 "not fast". Every constituent is separately in the index, so refusing these
+     * loses nothing and removes all seventeen artifacts they produced.
      *
-     * A list, because the alternatives were measured and are worse: backward maximum matching and
-     * a minimise-single-characters DP each fix about five of these and break sixty, mostly by
+     * Checked against the whole course rather than one account's deck: **not one of these is taught
+     * as a headword on any of 55,460 cards**, and their in-sentence occurrences are straddles —
+     * 个人 is 每/个/人 and 二十/个/人 with 个 as the measure word, 不知 is always 不/知道, 我去 is
+     * 我/去年 and 我/去中国. So the list cannot remove a word the course expects to be learned.
+     *
+     * The alternatives were measured, not assumed: backward maximum matching and a
+     * minimise-single-characters DP each fix about five of these and break sixty, mostly by
      * destroying the number system (二十/三 becomes 二/十三). Frequency-weighted segmentation is
-     * catastrophic, splitting 不是 and 好不好 into characters.
+     * worse still, splitting 不是 and 好不好 into characters.
      *
      * It applies only to a match *inside* a longer run. A card that states 你好 or 那是 on its own
-     * is stating a word, and the list must not contradict the deck — which it did: both are taught
-     * outright here, and excluding them outright deleted two words the user plainly knows.
+     * is stating a word, and the list must not contradict the deck — which it did: 那是 is taught
+     * outright here, and excluding it outright deleted a word the user plainly knows.
      *
-     * The remaining cost is the reverse error: if a sentence ever genuinely means "personal" by
-     * 个人, it will be missed. Missing beats inventing — the index answers "words I have been
-     * exposed to", and a wrong entry is a wrong answer where a missing one is merely incomplete.
+     * The residual cost is a false negative: 吃的 really is "food" in 这里的吃的, and refusing it
+     * there loses that. Missing beats inventing — the index answers "words I have been exposed to",
+     * and a wrong entry is a wrong answer where a missing one is merely incomplete.
      */
     private val NEVER_A_WORD_HERE = setOf(
         "你妈", "妈的", "要不", "要说", "我去", "不知", "在外", "吃藕",
