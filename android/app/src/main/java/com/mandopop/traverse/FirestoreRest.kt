@@ -126,7 +126,7 @@ class FirestoreRest(private val auth: TraverseAuth) {
      * works with the same user token as everything else — verified against Traverse's project at
      * 150 documents (1.0 MB) in a single POST.
      *
-     * Callers chunk and pace: the whole backfill is ~730 one-off reads against a collection
+     * Callers chunk and pace: the whole backfill is ~940 one-off reads against a collection
      * Traverse already serves, so the politeness that matters is never having two requests in
      * flight, and chunk-at-a-time also keeps a megabyte of JSON on the heap instead of ten.
      *
