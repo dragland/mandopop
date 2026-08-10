@@ -5,6 +5,11 @@
 
 import { lookup } from './lib/normalize.js';
 import { DICT_HASH } from './dict_version.js';
+import { signIn, signOut, account } from './lib/traverse/auth.js';
+import {
+  sync, recordError,
+  SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY, MAP_VERSION_KEY,
+} from './lib/traverse/sync.js';
 
 // IndexedDB constants
 const DB_NAME = 'mandopop';
@@ -132,7 +137,42 @@ async function loadDictionary() {
   return dictionaryLoading;
 }
 
-// Handle messages from content scripts
+// Traverse sync. The alarm exists whether or not the user is signed in —
+// sync() answers not-signed-in with zero network, and one steady alarm
+// beats managing its lifecycle across sign-in/out. Each firing costs one
+// heartbeat document read unless something actually changed.
+const SYNC_ALARM = 'traverse-sync';
+const SYNC_PERIOD_MINUTES = 6 * 60;
+
+async function traverseSync(force) {
+  const dict = await loadDictionary();
+  if (!dict) {
+    const error = 'Dictionary failed to load — sync cannot run';
+    // Signed-out profiles must not accumulate phantom "Needs attention"
+    // state from a feature they are not using.
+    if (await account()) await recordError(error);
+    return { status: 'failure', error };
+  }
+  return sync(dict, { force });
+}
+
+// Create-if-absent: an unconditional create would reset the countdown on
+// every worker wake, and lookups wake the worker constantly. The short
+// first delay covers an already-signed-in profile that would otherwise
+// wait a full period after an extension update.
+chrome.alarms.get(SYNC_ALARM).then((alarm) => {
+  if (!alarm) {
+    chrome.alarms.create(SYNC_ALARM, { delayInMinutes: 1, periodInMinutes: SYNC_PERIOD_MINUTES });
+  }
+});
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === SYNC_ALARM) traverseSync(false);
+});
+chrome.runtime.onStartup.addListener(() => {
+  traverseSync(false);
+});
+
+// Handle messages from content scripts and the popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'lookup') {
     loadDictionary().then(() => {
@@ -140,6 +180,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ result });
     });
     return true; // Async response
+  }
+  if (request.type === 'traverse.signIn') {
+    signIn(request.email, request.password)
+      .then((account) => {
+        sendResponse({ ok: true, email: account.email });
+        traverseSync(true); // first drain runs behind the response
+      })
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (request.type === 'traverse.signOut') {
+    // Derived data first, auth last: a worker death in between leaves a
+    // signed-in account that re-derives, never orphaned data. The fence
+    // (guardedSet) checks the ACCOUNT, so a drain checkpoint can still
+    // land in the gap before auth is removed — hence the second removal
+    // after signOut resolves, which closes that window.
+    const derived = [
+      SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY, MAP_VERSION_KEY,
+    ];
+    chrome.storage.local.remove(derived)
+      .then(() => signOut())
+      .then(() => chrome.storage.local.remove(derived))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (request.type === 'traverse.sync') {
+    traverseSync(true).then(sendResponse);
+    return true;
   }
 });
 

@@ -28,7 +28,7 @@ export const FORMAT_VERSION = 2;
 export { exactGlossRank };
 
 /** Cap per English key. Bounds ranking noise; does not affect `entries` completeness. */
-const MAX_ENTRIES_PER_KEY = 10;
+const MAX_ENTRIES_PER_KEY = 40;
 
 /**
  * Loads SUBTLEX-CH occurrences per million, keyed by word.

@@ -74,10 +74,10 @@ describe('rankForKey', () => {
     expect(rankForKey('x', [2, 0, 1], entries, freq)).toEqual([0, 1, 2]);
   });
 
-  it('caps a key at ten entries', () => {
-    const entries = Array.from({ length: 25 }, (_, i) => entry(`w${i}`, 'many'));
+  it('caps a key at forty entries', () => {
+    const entries = Array.from({ length: 55 }, (_, i) => entry(`w${i}`, 'many'));
     const ids = entries.map((_, i) => i);
-    expect(rankForKey('many', ids, entries, new Map())).toHaveLength(10);
+    expect(rankForKey('many', ids, entries, new Map())).toHaveLength(40);
   });
 });
 

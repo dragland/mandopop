@@ -158,3 +158,56 @@
   position: relative !important;
   z-index: 1 !important;
 }
+
+/* Diglot-weave replacements — inherit the page's typography, mark subtly */
+.mandopop-diglot {
+  text-decoration: underline dotted rgba(0, 255, 136, 0.55) !important;
+  text-underline-offset: 2px !important;
+  cursor: help !important;
+}
+
+/* Instant reveal tooltip for diglot-weave spans */
+#mandopop-weave-tip {
+  display: none !important;
+  max-width: calc(100vw - 8px) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  background: #0d0d0d !important;
+  border: 1px solid #2a2a2a !important;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+  font-family: 'SF Mono', 'Fira Code', 'Monaco', 'Consolas', monospace !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  color: #888888 !important;
+  white-space: nowrap !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+#mandopop-weave-tip.mandopop-visible {
+  display: block !important;
+}
+
+.mandopop-weave-tip-pinyin {
+  color: #00d4ff !important;
+}
+
+.mandopop-weave-tip-audio {
+  background: none !important;
+  border: none !important;
+  padding: 0 0 0 8px !important;
+  cursor: pointer !important;
+  vertical-align: -2px !important;
+}
+
+.mandopop-weave-tip-audio svg {
+  width: 14px !important;
+  height: 14px !important;
+  fill: #999999 !important;
+}
+
+.mandopop-weave-tip-audio:hover svg {
+  fill: #00ff88 !important;
+}

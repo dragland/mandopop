@@ -34,3 +34,12 @@ export const readGlossRankCases = () =>
 
 export const readDefinitionFormattingCases = () =>
   readTsvRows('definition_formatting_cases.tsv', ['name', 'input', 'expected']);
+
+export const readSegmentationCases = () =>
+  readTsvRows('segmentation_cases.tsv', ['name', 'text', 'vocabRaw', 'expectedRaw'])
+    .map(({ name, text, vocabRaw, expectedRaw }) => ({
+      name,
+      text,
+      vocab: new Set(vocabRaw === '<none>' ? [] : vocabRaw.split('|')),
+      expected: expectedRaw === '<none>' ? [] : expectedRaw.split('|')
+    }));

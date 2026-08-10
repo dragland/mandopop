@@ -1,0 +1,16 @@
+# Segmentation parity cases shared between the browser extension and Android.
+# Columns: name <TAB> text <TAB> vocab (|-separated, <none> for empty) <TAB> expected segments (|-separated, <none> for empty)
+# vocab is the dictionary-membership answer handed to the segmenter — only 2..4 character words matter, singles are always emitted.
+forward_longest_match	他听不懂	听不懂|不懂	他|听不懂
+number_system_survives_greed	二十三	二十|十三	二十|三
+never_a_word_inside_a_run	二十个人	二十|个人	二十|个|人
+never_a_word_as_whole_run	个人	个人	个人
+nihao_suppressed_inside	说你好吗	你好	说|你|好|吗
+nihao_whole_run	你好	你好	你好
+zai_nar_suppressed_inside	我在那儿	在那儿|那儿	我|在|那儿
+punctuation_splits_runs	他1776年。	他年	他|年
+latin_never_emitted	hello 123	<none>	<none>
+singles_without_vocab	东西南	<none>	东|西|南
+course_sentence_qing_chi_dongxi	请吃东西	东西	请|吃|东西
+longest_wins_at_a_position	东西南	东西|东西南	东西南
+five_char_words_unreachable	中华人民共	中华人民共	中|华|人|民|共

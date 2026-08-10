@@ -42,4 +42,133 @@ document.addEventListener('DOMContentLoaded', async () => {
   fontSizeSlider.addEventListener('change', () => {
     save({ fontSize: parseInt(fontSizeSlider.value, 10) });
   });
+
+  // --- Traverse ---
+
+  const signInForm = document.getElementById('signInForm');
+  const signInBtn = document.getElementById('signInBtn');
+  const signInLabel = document.getElementById('signInLabel');
+  const accountPanel = document.getElementById('traverseAccount');
+  const accountLine = document.getElementById('traverseAccountLine');
+  const courseStatus = document.getElementById('courseStatus');
+  const statusLine = document.getElementById('traverseStatus');
+  const errorLine = document.getElementById('traverseError');
+  const diglotToggle = document.getElementById('diglotWeave');
+  const syncBtn = document.getElementById('syncBtn');
+  const signOutBtn = document.getElementById('signOutBtn');
+
+  // Coverage names a state — the healthy one is a positive assertion, and
+  // the broken one leads with a number that is zero when healthy. Progress
+  // is read from the persisted sync state, not a popup-local flag, so a
+  // popup opened mid-drain still shows the drain.
+  function coverageText(state) {
+    const { words, cards, fetched, readable } = state;
+    // A dead worker leaves syncing:true behind; the drain stamps progress
+    // every few seconds, so an old stamp means interrupted, not live.
+    const syncing = state.syncing
+      && state.progressAtMs !== undefined
+      && Date.now() - state.progressAtMs < 2 * 60 * 1000;
+    if (state.syncing && !syncing) return 'Sync interrupted — Sync Now resumes where it left off';
+    // The first read of the deck is the better part of a minute; a bare
+    // spinner state is indistinguishable from a hang, so say which wait
+    // this is.
+    if (cards === undefined) return syncing ? 'Reading your deck — this can take a minute' : 'Not synced yet';
+    if (syncing) return `${words ?? 0} words · indexing ${fetched ?? 0} of ${cards} cards`;
+    if (fetched < cards) return `${words} words · ${fetched} of ${cards} cards indexed`;
+    if (readable < cards) return `${words} words · ${cards - readable} of ${cards} cards unreadable`;
+    return `${words} words · all ${cards} cards indexed`;
+  }
+
+  async function renderTraverse() {
+    const { traverseAuth, traverseSyncState } = await chrome.storage.local.get([
+      'traverseAuth', 'traverseSyncState',
+    ]);
+    const signedIn = Boolean(traverseAuth);
+    signInForm.hidden = signedIn;
+    accountPanel.hidden = !signedIn;
+
+    const state = traverseSyncState ?? {};
+    // Header status states the functional truth at a glance, error first.
+    if (state.lastError) {
+      courseStatus.textContent = 'Needs attention';
+      courseStatus.classList.add('attention');
+    } else {
+      courseStatus.textContent = signedIn ? 'Linked' : 'Not linked';
+      courseStatus.classList.remove('attention');
+    }
+    if (signedIn) {
+      accountLine.textContent = traverseAuth.email || 'Signed in';
+      statusLine.textContent = coverageText(state);
+    }
+    // Signed out, lastError still renders — "session expired" must not
+    // vanish along with the account panel.
+    errorLine.textContent = state.lastError ?? '';
+  }
+
+  signInForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    signInBtn.disabled = true;
+    signInLabel.textContent = 'Signing in…';
+    errorLine.textContent = '';
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'traverse.signIn',
+        email: document.getElementById('traverseEmail').value.trim(),
+        password: document.getElementById('traversePassword').value,
+      });
+      if (response?.ok) {
+        runSync(); // joins the drain the background already started
+      } else {
+        errorLine.textContent = response?.error ?? 'Sign-in failed';
+      }
+    } catch (error) {
+      errorLine.textContent = `Sign-in interrupted: ${error.message}`;
+    } finally {
+      signInBtn.disabled = false;
+      signInLabel.textContent = 'Sign in with Traverse';
+    }
+  });
+
+  async function runSync() {
+    syncBtn.disabled = true;
+    let failure = null;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'traverse.sync' });
+      if (response?.status === 'failure' && response.error) failure = response.error;
+    } catch (error) {
+      failure = `Sync interrupted: ${error.message}`;
+    }
+    syncBtn.disabled = false;
+    // Render first, THEN surface the response failure — renderTraverse
+    // overwrites the error line from stored state, which may lag it.
+    await renderTraverse();
+    if (failure !== null) errorLine.textContent = failure;
+  }
+
+  syncBtn.addEventListener('click', runSync);
+
+  signOutBtn.addEventListener('click', async () => {
+    try {
+      await chrome.runtime.sendMessage({ type: 'traverse.signOut' });
+    } catch (error) {
+      errorLine.textContent = `Sign-out failed: ${error.message}`;
+    }
+    renderTraverse();
+  });
+
+  diglotToggle.addEventListener('change', () => {
+    save({ diglotWeave: diglotToggle.checked });
+  });
+
+  const { diglotWeave } = await chrome.storage.sync.get(['diglotWeave']);
+  diglotToggle.checked = diglotWeave !== false;
+
+  // Live-update while the background sync writes progress.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && ('traverseSyncState' in changes || 'traverseAuth' in changes)) {
+      renderTraverse();
+    }
+  });
+
+  renderTraverse();
 });

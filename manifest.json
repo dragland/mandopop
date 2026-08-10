@@ -6,7 +6,13 @@
   "permissions": [
     "activeTab",
     "storage",
-    "unlimitedStorage"
+    "unlimitedStorage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://identitytoolkit.googleapis.com/*",
+    "https://securetoken.googleapis.com/*",
+    "https://firestore.googleapis.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -28,9 +34,15 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content/cedict_formatter.js", "content.js"],
+      "js": ["content/cedict_formatter.js", "content/speech.js", "content.js", "content/diglot.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["lib/diglot.js", "lib/normalize.js", "lib/weave_refusals.js"],
+      "matches": ["<all_urls>"]
     }
   ]
 }
