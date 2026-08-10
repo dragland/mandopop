@@ -44,6 +44,89 @@ describe('buildReplacementMap', () => {
     expect(buildReplacementMap(['快'], dictionary)['fast']).toEqual({ s: '快', p: 'kuài' });
   });
 
+  it('splits canonicals by gloss capitalization — months and proper nouns', () => {
+    const cased = {
+      entries: [
+        { s: '游行', p: 'yóu xíng', d: ['to march; to parade', 'procession; march'] },
+        { s: '三月', p: 'Sān yuè', d: ['March', 'third month (of the lunar year)'] },
+        { s: '瓷器', p: 'cí qì', d: ['porcelain', 'china'] },
+        { s: '中国', p: 'Zhōng guó', d: ['China'] },
+      ],
+      index: { 'march': [0, 1], 'china': [2, 3] },
+    };
+    const map = buildReplacementMap(['游行', '三月', '瓷器', '中国'], cased);
+    expect(matchText('19 March 2023', map)).toContainEqual({ original: 'March', s: '三月', p: 'Sān yuè' });
+    expect(matchText('they march on', map)).toContainEqual({ original: 'march', s: '游行', p: 'yóu xíng' });
+    expect(matchText('made in China', map)).toContainEqual({ original: 'China', s: '中国', p: 'Zhōng guó' });
+    expect(matchText('fine china plates', map)).toContainEqual({ original: 'china', s: '瓷器', p: 'cí qì' });
+  });
+
+  it('a proper-only key never weaves a lowercase token', () => {
+    const cased = {
+      entries: [{ s: '六月', p: 'Liù yuè', d: ['June'] }],
+      index: { 'june': [0] },
+    };
+    const map = buildReplacementMap(['六月'], cased);
+    expect(matchText('came home in June', map)).toContainEqual({ original: 'June', s: '六月', p: 'Liù yuè' });
+    expect(matchText('the june bug', map)).toBe(null);
+  });
+
+  it('a bare sense inherits its run’s register qualifier — 乎 never means "than"', () => {
+    const classical = {
+      entries: [
+        { s: '乎', p: 'hū', d: ['(classical particle similar to 於|于[yu2]) in', 'at', 'from', 'because', 'than'] },
+      ],
+      index: { 'than': [0], 'because': [0] },
+    };
+    const map = buildReplacementMap(['乎'], classical);
+    expect(map['than']).toBeUndefined();
+    expect(map['because']).toBeUndefined();
+  });
+
+  it('a strictly better sense position beats frequency for the canonical', () => {
+    // The build ranks positions 0 and 1 as one tier, so ubiquitous 文
+    // (culture at #1) outranks 文化 (culture at #0) in the index; the
+    // swap must still pick 文化.
+    const tiered = {
+      entries: [
+        { s: '文', p: 'wén', d: ['language', 'culture', 'writing'] },
+        { s: '文化', p: 'wén huà', d: ['culture', 'civilization'] },
+      ],
+      index: { 'culture': [0, 1] },
+    };
+    expect(buildReplacementMap(['文', '文化'], tiered)['culture'])
+      .toEqual({ s: '文化', p: 'wén huà' });
+  });
+
+  it('refuses trailing abbreviation and honorific marks', () => {
+    const marked = {
+      entries: [
+        { s: '中', p: 'Zhōng', d: ['China (abbr.)', 'middle'] },
+        { s: '中国', p: 'Zhōng guó', d: ['China'] },
+        { s: '高', p: 'gāo', d: ['high', 'tall', 'your (honorific)'] },
+      ],
+      index: { 'china': [0, 1], 'your': [2] },
+    };
+    const map = buildReplacementMap(['中', '中国', '高'], marked);
+    expect(map['china']).toEqual({ proper: { s: '中国', p: 'Zhōng guó' } });
+    expect(map['your']).toBeUndefined();
+  });
+
+  it('domain labels do not disqualify — "(meteorology) climate" IS climate', () => {
+    const domains = {
+      entries: [
+        { s: '气候', p: 'qì hòu', d: ['(meteorology) climate', '(fig.) climate; prevailing conditions'] },
+        { s: '候', p: 'hòu', d: ['to wait', 'season', 'climate'] },
+        { s: '那', p: 'nà', d: ['(specifier) that; the; those', '(pronoun) that'] },
+        { s: '彼', p: 'bǐ', d: ['that', 'those'] },
+      ],
+      index: { 'climate': [0, 1], 'that': [2, 3] },
+    };
+    const map = buildReplacementMap(['气候', '候', '那', '彼'], domains);
+    expect(map['climate']).toEqual({ s: '气候', p: 'qì hòu' });
+    expect(map['that']).toEqual({ s: '那', p: 'nà' });
+  });
+
   it('rejects senses qualified by a leading parenthetical', () => {
     // 去 lists "(of a time etc) last" — it means "last" only inside bound
     // compounds like 去年, and swapping it standalone wove "last week"
@@ -104,6 +187,25 @@ describe('matchText', () => {
   it('returns null when nothing matches', () => {
     expect(matchText('nothing here', map)).toBe(null);
     expect(matchText('', map)).toBe(null);
+  });
+
+  it('refuses false stems — has is not "ha", being is not a bee', () => {
+    const stems = {
+      entries: [
+        { s: '哈', p: 'hā', d: ['ha!'] },
+        { s: '蜜蜂', p: 'mì fēng', d: ['bee'] },
+        { s: '我们', p: 'wǒ men', d: ['we', 'us'] },
+        { s: '有', p: 'yǒu', d: ['to have'] },
+      ],
+      index: { 'ha': [0], 'bee': [1], 'us': [2], 'we': [2], 'have': [3] },
+    };
+    const map = buildReplacementMap(['哈', '蜜蜂', '我们', '有'], stems);
+    expect(matchText('she has been busy', map)).toContainEqual({ original: 'has', s: '有', p: 'yǒu' });
+    expect(matchText('a being of light', map)).toBe(null);
+    expect(matchText('we used it', map)).toContainEqual({ original: 'we', s: '我们', p: 'wǒ men' });
+    expect(matchText('we used it', map)).not.toContainEqual(
+      expect.objectContaining({ original: 'used', s: '我们' }),
+    );
   });
 
   it('never matches inherited Object.prototype keys', () => {
