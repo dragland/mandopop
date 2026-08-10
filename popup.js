@@ -47,7 +47,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const signInForm = document.getElementById('signInForm');
   const signInBtn = document.getElementById('signInBtn');
+  const signInLabel = document.getElementById('signInLabel');
   const accountPanel = document.getElementById('traverseAccount');
+  const accountLine = document.getElementById('traverseAccountLine');
+  const courseStatus = document.getElementById('courseStatus');
   const statusLine = document.getElementById('traverseStatus');
   const errorLine = document.getElementById('traverseError');
   const diglotToggle = document.getElementById('diglotWeave');
@@ -60,7 +63,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // popup opened mid-drain still shows the drain.
   function coverageText(state) {
     const { words, cards, fetched, readable, syncing } = state;
-    if (cards === undefined) return syncing ? 'syncing…' : 'Not synced yet';
+    // The first read of the deck is the better part of a minute; a bare
+    // spinner state is indistinguishable from a hang, so say which wait
+    // this is.
+    if (cards === undefined) return syncing ? 'Reading your deck — this can take a minute' : 'Not synced yet';
     if (syncing) return `${words ?? 0} words · indexing ${fetched ?? 0} of ${cards} cards`;
     if (fetched < cards) return `${words} words · ${fetched} of ${cards} cards indexed`;
     if (readable < cards) return `${words} words · ${cards - readable} of ${cards} cards unreadable`;
@@ -76,8 +82,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     accountPanel.hidden = !signedIn;
 
     const state = traverseSyncState ?? {};
+    // Header status states the functional truth at a glance, error first.
+    if (state.lastError) {
+      courseStatus.textContent = 'Needs attention';
+      courseStatus.classList.add('attention');
+    } else {
+      courseStatus.textContent = signedIn ? 'Linked' : 'Not linked';
+      courseStatus.classList.remove('attention');
+    }
     if (signedIn) {
-      statusLine.textContent = `${traverseAuth.email} · ${coverageText(state)}`;
+      accountLine.textContent = traverseAuth.email || 'Signed in';
+      statusLine.textContent = coverageText(state);
     }
     // Signed out, lastError still renders — "session expired" must not
     // vanish along with the account panel.
@@ -87,7 +102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   signInForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     signInBtn.disabled = true;
-    signInBtn.textContent = 'Signing in…';
+    signInLabel.textContent = 'Signing in…';
     errorLine.textContent = '';
     try {
       const response = await chrome.runtime.sendMessage({
@@ -104,7 +119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       errorLine.textContent = `Sign-in interrupted: ${error.message}`;
     } finally {
       signInBtn.disabled = false;
-      signInBtn.textContent = 'Sign in';
+      signInLabel.textContent = 'Sign in with Traverse';
     }
   });
 

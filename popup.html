@@ -188,18 +188,57 @@
       text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
     }
 
-    /* Traverse */
-    .traverse {
-      margin-top: 16px;
-      padding-top: 12px;
-      border-top: 1px solid #1a1a1a;
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #666;
+      margin: 16px 0 4px;
     }
 
-    .traverse-title {
-      font-size: 12px;
+    /* Connected course (Traverse) */
+    .traverse {
+      margin-top: 4px;
+      padding-top: 4px;
+    }
+
+    .course-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    /* Opaque square marks read as icons, not stray blocks, once clipped */
+    .course-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+    }
+
+    .course-title {
+      font-size: 13px;
       font-weight: 600;
       color: #e8e8e8;
-      margin-bottom: 8px;
+      flex: 1;
+    }
+
+    .course-status {
+      font-size: 11px;
+      color: #8a8a8a;
+    }
+
+    .course-status.attention {
+      color: #ff5f56;
+    }
+
+    .signin-logo {
+      width: 20px;
+      height: 20px;
+      border-radius: 5px;
+      vertical-align: -5px;
+      margin-right: 8px;
     }
 
     .traverse input[type="email"],
@@ -220,8 +259,23 @@
       border-color: #00ff88;
     }
 
-    #signInForm .setting-description {
-      margin: 4px 0 10px;
+    #signInForm {
+      margin-top: 10px;
+    }
+
+    #signInForm .traverse-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 12px;
+    }
+
+    .traverse-account-line {
+      font-size: 12px;
+      color: #e8e8e8;
+      margin-top: 10px;
+      word-break: break-all;
     }
 
     .traverse-btn {
@@ -282,6 +336,8 @@
     <h1>Mandopop</h1>
   </div>
 
+  <div class="section-label">Lookups</div>
+
   <div class="setting">
     <div>
       <div class="setting-label">Pronunciation</div>
@@ -309,15 +365,22 @@
     <div class="preview-pinyin">nǐ hǎo</div>
   </div>
 
+  <div class="section-label">Connected courses</div>
+
   <div class="traverse">
-    <div class="traverse-title">Traverse</div>
+    <div class="course-header">
+      <img src="icons/logo_mandarin_blueprint.png" class="course-logo" alt="">
+      <span class="course-title">Mandarin Blueprint</span>
+      <span class="course-status" id="courseStatus"></span>
+    </div>
+    <div class="setting-description">Sync course progress and spaced-repetition cards.</div>
 
     <!-- Outside the account panel: the toggle governs page rewriting, which
          can outlive the session (an expired token must not strand it). -->
     <div class="setting">
       <div>
         <div class="setting-label">Diglot weave</div>
-        <div class="setting-description">Weave hanzi you've learned into English pages as you browse</div>
+        <div class="setting-description">Weave known hanzi into pages as you browse</div>
       </div>
       <label class="toggle">
         <input type="checkbox" id="diglotWeave">
@@ -326,23 +389,21 @@
     </div>
 
     <form id="signInForm" hidden>
-      <div class="setting-description">
-        Sign in with your Traverse account to sync which words you've learned.
-        Your password is used once and never stored.
-      </div>
-      <input type="email" id="traverseEmail" placeholder="email" autocomplete="username" aria-label="Traverse email" required>
-      <input type="password" id="traversePassword" placeholder="password" autocomplete="current-password" aria-label="Traverse password" required>
-      <div class="traverse-actions">
-        <button type="submit" class="traverse-btn" id="signInBtn">Sign in</button>
-      </div>
+      <input type="email" id="traverseEmail" placeholder="Traverse email" autocomplete="username" aria-label="Traverse email" required>
+      <input type="password" id="traversePassword" placeholder="Password" autocomplete="current-password" aria-label="Password" required>
+      <button type="submit" class="traverse-btn" id="signInBtn">
+        <img src="icons/logo_traverse.png" class="signin-logo" alt="">
+        <span id="signInLabel">Sign in with Traverse</span>
+      </button>
     </form>
 
     <div id="traverseAccount" hidden>
+      <div class="traverse-account-line" id="traverseAccountLine"></div>
       <div class="traverse-status" id="traverseStatus"></div>
 
       <div class="traverse-actions">
-        <button type="button" class="traverse-btn traverse-btn-quiet" id="signOutBtn">Sign out</button>
-        <button type="button" class="traverse-btn" id="syncBtn">Sync now</button>
+        <button type="button" class="traverse-btn traverse-btn-quiet" id="signOutBtn">Sign Out</button>
+        <button type="button" class="traverse-btn" id="syncBtn">Sync Now</button>
       </div>
     </div>
 
