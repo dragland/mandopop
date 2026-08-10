@@ -4,6 +4,17 @@ import { readNormalizationCases } from './fixtures.js';
 
 const normalizationCases = readNormalizationCases();
 
+describe('lookup prototype safety', () => {
+  it('never resolves index keys through the prototype chain', () => {
+    const dictionary = { entries: [{ s: '猫', p: 'māo', d: ['cat'] }], index: { cat: [0] } };
+    // "constructor" is a real English word; the inherited prototype value
+    // made this throw in the service worker.
+    expect(lookup('constructor', dictionary)).toBe(null);
+    expect(lookup('hasOwnProperty', dictionary)).toBe(null);
+    expect(lookup('cat', dictionary)[0].s).toBe('猫');
+  });
+});
+
 describe('normalizeWord', () => {
   describe('shared parity fixtures', () => {
     it.each(normalizationCases)('$name', ({ input, expected }) => {

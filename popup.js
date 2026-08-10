@@ -62,7 +62,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // is read from the persisted sync state, not a popup-local flag, so a
   // popup opened mid-drain still shows the drain.
   function coverageText(state) {
-    const { words, cards, fetched, readable, syncing } = state;
+    const { words, cards, fetched, readable } = state;
+    // A dead worker leaves syncing:true behind; the drain stamps progress
+    // every few seconds, so an old stamp means interrupted, not live.
+    const syncing = state.syncing
+      && state.progressAtMs !== undefined
+      && Date.now() - state.progressAtMs < 2 * 60 * 1000;
+    if (state.syncing && !syncing) return 'Sync interrupted — Sync Now resumes where it left off';
     // The first read of the deck is the better part of a minute; a bare
     // spinner state is indistinguishable from a hang, so say which wait
     // this is.
@@ -125,17 +131,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function runSync() {
     syncBtn.disabled = true;
+    let failure = null;
     try {
       const response = await chrome.runtime.sendMessage({ type: 'traverse.sync' });
-      if (response?.status === 'failure' && response.error) {
-        errorLine.textContent = response.error;
-      }
+      if (response?.status === 'failure' && response.error) failure = response.error;
     } catch (error) {
-      errorLine.textContent = `Sync interrupted: ${error.message}`;
-    } finally {
-      syncBtn.disabled = false;
-      renderTraverse();
+      failure = `Sync interrupted: ${error.message}`;
     }
+    syncBtn.disabled = false;
+    // Render first, THEN surface the response failure — renderTraverse
+    // overwrites the error line from stored state, which may lag it.
+    await renderTraverse();
+    if (failure !== null) errorLine.textContent = failure;
   }
 
   syncBtn.addEventListener('click', runSync);

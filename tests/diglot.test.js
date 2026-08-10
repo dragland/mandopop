@@ -77,6 +77,22 @@ describe('buildReplacementMap', () => {
     expect(matchText('worth a miss. The next day', map)).toContainEqual({ original: 'miss', s: '错过', p: 'cuò guò' });
   });
 
+  it('a contested proper canonical keeps capitalized tokens English', () => {
+    // The user knows 游行 (to march) but not yet 三月 — "March 2024" must
+    // not fall back to the parade sense.
+    const cased = {
+      entries: [
+        { s: '游行', p: 'yóu xíng', d: ['to march; to parade', 'procession; march'] },
+        { s: '三月', p: 'Sān yuè', d: ['March'] },
+      ],
+      index: { 'march': [0, 1] },
+    };
+    const map = buildReplacementMap(['游行'], cased);
+    expect(map['march']).toEqual({ s: '游行', p: 'yóu xíng', contested: true });
+    expect(matchText('in March 2024', map)).toBe(null);
+    expect(matchText('they march on', map)).toContainEqual({ original: 'march', s: '游行', p: 'yóu xíng' });
+  });
+
   it('a proper-only key never weaves a lowercase token', () => {
     const cased = {
       entries: [{ s: '六月', p: 'Liù yuè', d: ['June'] }],

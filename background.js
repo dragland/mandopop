@@ -5,7 +5,7 @@
 
 import { lookup } from './lib/normalize.js';
 import { DICT_HASH } from './dict_version.js';
-import { signIn, signOut } from './lib/traverse/auth.js';
+import { signIn, signOut, account } from './lib/traverse/auth.js';
 import {
   sync, recordError,
   SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY, MAP_VERSION_KEY,
@@ -148,7 +148,9 @@ async function traverseSync(force) {
   const dict = await loadDictionary();
   if (!dict) {
     const error = 'Dictionary failed to load — sync cannot run';
-    await recordError(error);
+    // Signed-out profiles must not accumulate phantom "Needs attention"
+    // state from a feature they are not using.
+    if (await account()) await recordError(error);
     return { status: 'failure', error };
   }
   return sync(dict, { force });
@@ -190,12 +192,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   if (request.type === 'traverse.signOut') {
     // Derived data first, auth last: a worker death in between leaves a
-    // signed-in account that re-derives, never orphaned data. The sync
-    // fence (guardedSet) keeps any in-flight drain from resurrecting it.
-    chrome.storage.local.remove([
+    // signed-in account that re-derives, never orphaned data. The fence
+    // (guardedSet) checks the ACCOUNT, so a drain checkpoint can still
+    // land in the gap before auth is removed — hence the second removal
+    // after signOut resolves, which closes that window.
+    const derived = [
       SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY, MAP_VERSION_KEY,
-    ])
+    ];
+    chrome.storage.local.remove(derived)
       .then(() => signOut())
+      .then(() => chrome.storage.local.remove(derived))
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;

@@ -1,5 +1,5 @@
 /**
- * Mandopop Chinglish Content Script
+ * Mandopop Diglot Weave Content Script
  * Replaces English words the user has a known Chinese word for with hanzi.
  *
  * All decisions were made at sync time: this script matches page text
@@ -123,7 +123,9 @@
     if (tip) return tip;
     tip = document.createElement('div');
     tip.id = 'mandopop-weave-tip';
-    tip.setAttribute('role', 'tooltip');
+    // status, not tooltip: it contains a button, and ARIA tooltips must be
+    // plain text — the same lesson the lookup popup already recorded.
+    tip.setAttribute('role', 'status');
     tip.append(document.createElement('span'), document.createElement('span'));
     tip.firstChild.className = 'mandopop-weave-tip-pinyin';
 
@@ -165,10 +167,12 @@
 
   function hideTip() {
     clearTimeout(hideTimer);
+    if (tip !== null && tip.contains(document.activeElement)) document.activeElement.blur();
     tip?.classList.remove('mandopop-visible');
   }
 
   document.addEventListener('mouseover', (event) => {
+    if (!hasWoven) return; // nothing woven, nothing to reveal — skip the closest() walks
     const span = event.target.closest?.('.mandopop-diglot');
     if (span) {
       showTip(span);
@@ -180,6 +184,9 @@
     }
   });
   document.addEventListener('scroll', hideTip, { passive: true, capture: true });
+  // Leaving the window fires no further mouseover — hide explicitly.
+  document.documentElement.addEventListener('mouseleave', hideTip);
+  window.addEventListener('blur', hideTip);
 
   // Framework crash fail-safe. Rewritten text nodes can crash React-style
   // reconciliation (NotFoundError — the Google Translate failure). The
@@ -279,6 +286,18 @@
       }
       if (area === 'sync' && 'diglotWeave' in changes) {
         enabled = changes.diglotWeave.newValue !== false;
+        // Toggling the weave on is the universal "try again" gesture — it
+        // clears this site's crash stamp so off/on is never a no-op.
+        if (enabled && disabledHere) {
+          disabledHere = false;
+          chrome.storage.local.get('weaveDisabledSites').then((stored) => {
+            const sites = disabledSitesOf(stored);
+            if (sites[location.hostname] !== undefined) {
+              delete sites[location.hostname];
+              chrome.storage.local.set({ weaveDisabledSites: sites });
+            }
+          });
+        }
         restart();
       }
       if (area === 'sync' && 'showAudio' in changes) {
@@ -290,6 +309,14 @@
     if (active()) {
       observe();
       enqueue(document.body);
+    }
+
+    // A map write can land between the get above and the listener
+    // registration; re-read once so the window closes.
+    const { replacementMap: latest } = await chrome.storage.local.get('replacementMap');
+    if (JSON.stringify(latest ?? null) !== JSON.stringify(replacementMap ?? null)) {
+      setMap(latest);
+      restart();
     }
   }
 

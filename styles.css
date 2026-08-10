@@ -159,7 +159,7 @@
   z-index: 1 !important;
 }
 
-/* Chinglish replacements — inherit the page's typography, mark subtly */
+/* Diglot-weave replacements — inherit the page's typography, mark subtly */
 .mandopop-diglot {
   text-decoration: underline dotted rgba(0, 255, 136, 0.55) !important;
   text-underline-offset: 2px !important;
@@ -169,6 +169,9 @@
 /* Instant reveal tooltip for diglot-weave spans */
 #mandopop-weave-tip {
   display: none !important;
+  max-width: calc(100vw - 8px) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
   position: fixed !important;
   z-index: 2147483647 !important;
   background: #0d0d0d !important;
