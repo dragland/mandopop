@@ -61,6 +61,22 @@ describe('buildReplacementMap', () => {
     expect(matchText('fine china plates', map)).toContainEqual({ original: 'china', s: '瓷器', p: 'cí qì' });
   });
 
+  it('base senses never fire inside a Title-Case run', () => {
+    const titles = {
+      entries: [{ s: '错过', p: 'cuò guò', d: ['to miss (train, opportunity etc)'] }],
+      index: { 'miss': [0] },
+    };
+    const map = buildReplacementMap(['错过'], titles);
+    // "Miss Bennet" is a title, not the verb — no proper canonical exists,
+    // so the token stays English rather than falling back to 错过.
+    expect(matchText('Miss Bennet smiled', map)).toBe(null);
+    // Sentence-initial capital with a lowercase neighbor still weaves…
+    expect(matchText('Miss you already', map)).toContainEqual({ original: 'Miss', s: '错过', p: 'cuò guò' });
+    // …as does the plain verb, and a sentence boundary is not a run.
+    expect(matchText('do not miss it', map)).toContainEqual({ original: 'miss', s: '错过', p: 'cuò guò' });
+    expect(matchText('worth a miss. The next day', map)).toContainEqual({ original: 'miss', s: '错过', p: 'cuò guò' });
+  });
+
   it('a proper-only key never weaves a lowercase token', () => {
     const cased = {
       entries: [{ s: '六月', p: 'Liù yuè', d: ['June'] }],
