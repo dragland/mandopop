@@ -46,6 +46,19 @@ describe('buildReplacementMap', () => {
   it('accepts non-primary but exact senses', () => {
     expect(buildReplacementMap(['快'], dictionary)['fast']).toEqual({ s: '快', p: 'kuài' });
   });
+
+  it('rejects senses qualified by a leading parenthetical', () => {
+    // 去 lists "(of a time etc) last" — it means "last" only inside bound
+    // compounds like 去年, and swapping it standalone wove "last week"
+    // into the non-word 去周 on a real page.
+    const qualified = {
+      entries: [{ s: '去', p: 'qù', d: ['to go', '(of a time etc) last', 'to remove'] }],
+      index: { 'last': [0], 'go': [0] },
+    };
+    const map = buildReplacementMap(['去'], qualified);
+    expect(map['last']).toBeUndefined();
+    expect(map['go']).toEqual({ s: '去', p: 'qù' });
+  });
 });
 
 describe('matchText', () => {
