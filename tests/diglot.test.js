@@ -32,15 +32,12 @@ describe('buildReplacementMap', () => {
     expect(buildReplacementMap([], dictionary)).toEqual({});
   });
 
-  it('refuses a known word that merely mentions the key in a late gloss', () => {
-    // 门 lists "(fig.) school" — annotation stripping makes that sense
-    // "school", but 学校 has it at an earlier position; with only 门
-    // known, "school" must still map because the sense IS an exact gloss…
-    const map = buildReplacementMap(['门'], dictionary);
-    expect(map['school']).toEqual({ s: '门', p: 'mén' });
-    // …but a better-positioned known candidate always wins.
-    const both = buildReplacementMap(['门', '学校'], dictionary);
-    expect(both['school']).toEqual({ s: '学校', p: 'xué xiào' });
+  it('weaves only through the canonical translation, never a side-sense', () => {
+    // 门 lists "(fig.) school", but the canonical candidate for "school"
+    // is 学校 — knowing only 门, the key stays English.
+    expect(buildReplacementMap(['门'], dictionary)['school']).toBeUndefined();
+    expect(buildReplacementMap(['门', '学校'], dictionary)['school'])
+      .toEqual({ s: '学校', p: 'xué xiào' });
   });
 
   it('accepts non-primary but exact senses', () => {

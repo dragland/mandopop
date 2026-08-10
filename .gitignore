@@ -5,3 +5,6 @@ coverage/
 
 # Working notes. Durable knowledge belongs in code comments, AGENTS.md or the READMEs.
 spec.md
+
+# Full Traverse course export — local test corpus, never committed (course content)
+corpus/
