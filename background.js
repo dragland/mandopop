@@ -8,7 +8,7 @@ import { DICT_HASH } from './dict_version.js';
 import { signIn, signOut } from './lib/traverse/auth.js';
 import {
   sync, recordError,
-  SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY,
+  SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY, MAP_VERSION_KEY,
 } from './lib/traverse/sync.js';
 
 // IndexedDB constants
@@ -193,7 +193,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // signed-in account that re-derives, never orphaned data. The sync
     // fence (guardedSet) keeps any in-flight drain from resurrecting it.
     chrome.storage.local.remove([
-      SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY,
+      SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY, MAP_VERSION_KEY,
     ])
       .then(() => signOut())
       .then(() => sendResponse({ ok: true }))
