@@ -179,7 +179,6 @@
   font-size: 13px !important;
   line-height: 1.4 !important;
   color: #888888 !important;
-  pointer-events: none !important;
   white-space: nowrap !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
 }
@@ -190,4 +189,22 @@
 
 .mandopop-weave-tip-pinyin {
   color: #00d4ff !important;
+}
+
+.mandopop-weave-tip-audio {
+  background: none !important;
+  border: none !important;
+  padding: 0 0 0 8px !important;
+  cursor: pointer !important;
+  vertical-align: -2px !important;
+}
+
+.mandopop-weave-tip-audio svg {
+  width: 14px !important;
+  height: 14px !important;
+  fill: #999999 !important;
+}
+
+.mandopop-weave-tip-audio:hover svg {
+  fill: #00ff88 !important;
 }

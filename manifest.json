@@ -34,14 +34,14 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content/cedict_formatter.js", "content.js", "content/diglot.js"],
+      "js": ["content/cedict_formatter.js", "content/speech.js", "content.js", "content/diglot.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["lib/diglot.js", "lib/normalize.js"],
+      "resources": ["lib/diglot.js", "lib/normalize.js", "lib/weave_refusals.js"],
       "matches": ["<all_urls>"]
     }
   ]

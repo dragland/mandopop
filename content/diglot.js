@@ -27,7 +27,7 @@
   let draining = false;
 
   function active() {
-    return enabled && map !== null;
+    return enabled && !disabledHere && map !== null;
   }
 
   function replaceable(node) {
@@ -56,6 +56,7 @@
       fragment.appendChild(span);
     }
     node.parentNode.replaceChild(fragment, node);
+    hasWoven = true;
   }
 
   function enqueue(root) {
@@ -111,7 +112,12 @@
 
   // One shared tooltip, shown instantly on hover — the reveal is the
   // feature's core loop, so it must not wait on the native title delay.
+  // It is interactive (pronunciation button), so hiding is delayed just
+  // long enough to cross the gap from span to tooltip.
   let tip = null;
+  let tipAudio = null;
+  let audioEnabled = true;
+  let hideTimer = null;
 
   function tooltip() {
     if (tip) return tip;
@@ -120,14 +126,34 @@
     tip.setAttribute('role', 'tooltip');
     tip.append(document.createElement('span'), document.createElement('span'));
     tip.firstChild.className = 'mandopop-weave-tip-pinyin';
+
+    tipAudio = document.createElement('button');
+    tipAudio.className = 'mandopop-weave-tip-audio';
+    tipAudio.title = 'Play pronunciation';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z');
+    svg.appendChild(path);
+    tipAudio.appendChild(svg);
+    tipAudio.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      globalThis.MandopopSpeech.speak(tip.dataset.hanzi);
+    });
+    tip.appendChild(tipAudio);
+
     document.body.appendChild(tip);
     return tip;
   }
 
   function showTip(span) {
+    clearTimeout(hideTimer);
     const t = tooltip();
+    t.dataset.hanzi = span.textContent;
     t.firstChild.textContent = span.dataset.pinyin;
-    t.lastChild.textContent = ` · ${span.dataset.original}`;
+    t.children[1].textContent = ` · ${span.dataset.original}`;
+    tipAudio.hidden = !audioEnabled;
     t.classList.add('mandopop-visible');
     const rect = span.getBoundingClientRect();
     const left = Math.min(Math.max(rect.left, 4), window.innerWidth - t.offsetWidth - 4);
@@ -138,15 +164,59 @@
   }
 
   function hideTip() {
+    clearTimeout(hideTimer);
     tip?.classList.remove('mandopop-visible');
   }
 
   document.addEventListener('mouseover', (event) => {
     const span = event.target.closest?.('.mandopop-diglot');
-    if (span) showTip(span);
-    else hideTip();
+    if (span) {
+      showTip(span);
+    } else if (event.target.closest?.('#mandopop-weave-tip')) {
+      clearTimeout(hideTimer);
+    } else if (tip?.classList.contains('mandopop-visible')) {
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hideTip, 250);
+    }
   });
   document.addEventListener('scroll', hideTip, { passive: true, capture: true });
+
+  // Framework crash fail-safe. Rewritten text nodes can crash React-style
+  // reconciliation (NotFoundError — the Google Translate failure). The
+  // page's own exception surfaces as a window error event, which crosses
+  // the isolated-world boundary; on the signature, unweave and remember
+  // the site so it is never woven again. (CDN-hosted frameworks may mask
+  // the message as "Script error." — partial coverage, fail-safe only.)
+  const FRAMEWORK_CRASH = /NotFoundError|not a child of this node|removeChild|insertBefore/;
+  let hasWoven = false;
+  let disabledHere = false;
+
+  function disableOnThisSite(reason) {
+    if (disabledHere) return;
+    disabledHere = true;
+    observer?.disconnect();
+    observer = null;
+    queue.length = 0;
+    unapply();
+    console.warn(`[Mandopop] Diglot weave disabled on ${location.hostname}: ${reason}`);
+    chrome.storage.local.get('weaveDisabledSites').then((stored) => {
+      const sites = stored.weaveDisabledSites ?? [];
+      if (!sites.includes(location.hostname)) {
+        chrome.storage.local.set({ weaveDisabledSites: [...sites, location.hostname] });
+      }
+    });
+  }
+
+  window.addEventListener('error', (event) => {
+    if (hasWoven && !disabledHere && FRAMEWORK_CRASH.test(event.message ?? '')) {
+      disableOnThisSite(`page crashed after weaving (${(event.message ?? '').slice(0, 100)})`);
+    }
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    if (hasWoven && !disabledHere && FRAMEWORK_CRASH.test(String(event.reason ?? ''))) {
+      disableOnThisSite(`page crashed after weaving (${String(event.reason).slice(0, 100)})`);
+    }
+  });
 
   function unapply() {
     hideTip();
@@ -176,12 +246,17 @@
   async function init() {
     ({ matchText, longestKeyLength } = await import(chrome.runtime.getURL('lib/diglot.js')));
 
-    const [{ replacementMap }, { diglotWeave }] = await Promise.all([
-      chrome.storage.local.get('replacementMap'),
-      chrome.storage.sync.get('diglotWeave'),
+    const [{ replacementMap, weaveDisabledSites }, { diglotWeave, showAudio }] = await Promise.all([
+      chrome.storage.local.get(['replacementMap', 'weaveDisabledSites']),
+      chrome.storage.sync.get(['diglotWeave', 'showAudio']),
     ]);
     setMap(replacementMap);
     enabled = diglotWeave !== false;
+    audioEnabled = showAudio !== false;
+    if ((weaveDisabledSites ?? []).includes(location.hostname)) {
+      disabledHere = true;
+      console.info(`[Mandopop] Diglot weave stays off on ${location.hostname} (a page crash was detected here once)`);
+    }
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && 'replacementMap' in changes) {
@@ -191,6 +266,10 @@
       if (area === 'sync' && 'diglotWeave' in changes) {
         enabled = changes.diglotWeave.newValue !== false;
         restart();
+      }
+      if (area === 'sync' && 'showAudio' in changes) {
+        audioEnabled = changes.showAudio.newValue !== false;
+        if (tipAudio) tipAudio.hidden = !audioEnabled;
       }
     });
 

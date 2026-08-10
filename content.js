@@ -43,6 +43,7 @@
   };
 
   const { formatDefinitions } = globalThis.MandopopCedictFormatter;
+  const { findChineseVoice } = globalThis.MandopopSpeech;
 
   // Load settings
   async function loadSettings() {
@@ -224,33 +225,6 @@
     if (popup) {
       popup.classList.remove('mandopop-visible');
     }
-  }
-
-  // Find best Chinese voice (prefer Taiwan)
-  function findChineseVoice(voices) {
-    const chineseVoices = voices.filter(v => v.lang.startsWith('zh'));
-
-    const preferredVoices = [
-      { name: 'meijia', lang: 'zh-TW' },
-      { name: 'shelley', lang: 'zh-TW' },
-      { name: 'sandy', lang: 'zh-TW' },
-      { name: 'flo', lang: 'zh-TW' },
-    ];
-
-    for (const preferred of preferredVoices) {
-      const match = chineseVoices.find(v =>
-        v.name.toLowerCase().includes(preferred.name) && v.lang === preferred.lang
-      );
-      if (match) return match;
-    }
-
-    const twVoice = chineseVoices.find(v => v.lang === 'zh-TW');
-    if (twVoice) return twVoice;
-
-    const cnVoice = chineseVoices.find(v => v.lang === 'zh-CN');
-    if (cnVoice) return cnVoice;
-
-    return chineseVoices[0] || null;
   }
 
   // Pre-warm speech synthesis: select an initial voice and warm the engine
