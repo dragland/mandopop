@@ -191,7 +191,7 @@
   // Long enough to stop a crash loop; short enough that one page's odd
   // content can't permanently un-weave a hostname. A repeat crash after
   // expiry just re-stamps it.
-  const WEAVE_DISABLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const WEAVE_DISABLE_TTL_MS = 24 * 60 * 60 * 1000;
   let hasWoven = false;
   let disabledHere = false;
 
@@ -207,7 +207,7 @@
     observer = null;
     queue.length = 0;
     unapply();
-    console.warn(`[Mandopop] Diglot weave disabled on ${location.hostname} for 7 days: ${reason}`);
+    console.warn(`[Mandopop] Diglot weave disabled on ${location.hostname} for 24 hours: ${reason}`);
     chrome.storage.local.get('weaveDisabledSites').then((stored) => {
       const sites = disabledSitesOf(stored);
       const now = Date.now();
@@ -268,7 +268,7 @@
     const disabledAt = disabledSitesOf({ weaveDisabledSites })[location.hostname];
     if (disabledAt !== undefined && Date.now() - disabledAt < WEAVE_DISABLE_TTL_MS) {
       disabledHere = true;
-      const until = new Date(disabledAt + WEAVE_DISABLE_TTL_MS).toLocaleDateString();
+      const until = new Date(disabledAt + WEAVE_DISABLE_TTL_MS).toLocaleString();
       console.info(`[Mandopop] Diglot weave stays off on ${location.hostname} until ${until} (a page crash was detected here)`);
     }
 
