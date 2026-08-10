@@ -4,10 +4,13 @@ Chrome extension for learning Mandarin vocabulary while browsing. Select any Eng
 
 An experimental sideload-only Android version lives in [`android/`](android/README.md).
 
-A personal project, public because there's no reason not to be. The Android app additionally
-offers an optional [Traverse](https://traverse.link) integration that mirrors my own
-Mandarin Blueprint spaced-repetition state — useful if you happen to use that course, inert if you
-don't. Nothing outside `android/app/src/main/java/com/mandopop/traverse/` depends on it.
+A personal project, public because there's no reason not to be. Both apps additionally offer an
+optional [Traverse](https://traverse.link) integration that mirrors my own Mandarin Blueprint
+spaced-repetition state — useful if you happen to use that course, inert if you don't. On Android
+it lives in `android/app/src/main/java/com/mandopop/traverse/` and feeds a due-card notification;
+in the extension it lives in `lib/traverse/` and feeds the **diglot weave** — English words I've
+learned get swapped for their hanzi while I browse, pinyin and the original word on hover.
+Signed out, neither client touches the network.
 
   <img src="docs/example.png" width="45%" alt="Translation popup" />
   <img src="docs/settings.png" width="45%" alt="Settings panel" />
@@ -19,6 +22,9 @@ don't. Nothing outside `android/app/src/main/java/com/mandopop/traverse/` depend
 - **Offline dictionary** - 124,000 entries from CC-CEDICT, works without internet
 - **Dark hacker theme** - Neon green/cyan aesthetic
 - **Lightweight** - Dictionary loads once in service worker, shared across all tabs
+- **Diglot weave** *(optional, needs Traverse sign-in)* - Replaces English words you've learned
+  with their hanzi as you browse; hover for pinyin and the original word. Replacement decisions are
+  made offline at sync time — page text never leaves the browser
 
 ## Install
 
@@ -41,13 +47,15 @@ Click the extension icon to configure:
 - Toggle extension on/off
 - Show/hide audio button
 - Adjust Chinese character font size
+- Sign in to Traverse, watch sync coverage, and toggle the diglot weave
 
 ## Tech Stack
 
 - **Platform**: Chrome Extension (Manifest V3)
 - **Dictionary**: CC-CEDICT (bundled, ~13MB, cached in IndexedDB for fast service worker restarts)
 - **Audio**: Web Speech API (prefers Meijia voice for Taiwan Mandarin)
-- **Storage**: chrome.storage.sync for settings, IndexedDB for dictionary cache
+- **Storage**: chrome.storage.sync for settings, IndexedDB for dictionary cache,
+  chrome.storage.local for the Traverse mirror (schedules, card content, known words)
 
 ## Project Structure
 
@@ -57,12 +65,15 @@ mandopop/
 ├── background.js      # Service worker (ES module) - dictionary cache & lookups
 ├── content.js         # Selection detection & popup rendering (IIFE)
 ├── content/
-│   └── cedict_formatter.js # No-build content-script formatter
+│   ├── cedict_formatter.js # No-build content-script formatter
+│   └── diglot.js      # Page pass: swaps known English words for hanzi (IIFE)
 ├── scripts/
 │   └── preprocess_cedict.js # CC-CEDICT → cedict.json
 ├── lib/
 │   ├── normalize.js   # Word normalization & lookup logic (ESM)
-│   └── pinyin.js      # Pinyin conversion & word extraction (ESM)
+│   ├── pinyin.js      # Pinyin conversion & word extraction (ESM)
+│   ├── diglot.js      # Replacement table builder & text matcher (ESM)
+│   └── traverse/      # Traverse client: auth, Firestore REST, sync, card parsing
 ├── testdata/          # Shared browser/Android parity fixtures
 ├── styles.css         # Neon hacker theme
 ├── popup.html/js      # Settings panel
@@ -123,7 +134,8 @@ due-card notification reads the cards directly. Next, roughly in order — each 
 - **SRS-aware lookups** — the selection overlay showing recall state ("reviewed 4×, due tomorrow").
 - **Tap-anywhere reading mode** — read on-screen text from the accessibility tree instead of
   requiring a selection. Also the groundwork for the next item.
-- **Progressive hanzi** — swap known English words for characters as I learn them. Hard limit: an
+- **Progressive hanzi** — swap known English words for characters as I learn them. Shipped in the
+  browser as the diglot weave, where the DOM permits real rewriting. Hard limit on Android: an
   accessibility service cannot rewrite another app's text, only draw over its bounding boxes, so
   this fights scrolling and reflow. One allowlisted app first.
 - **Writing chip** — live-translate a sentence above the keyboard. Needs on-device NMT (ML Kit);

@@ -160,7 +160,7 @@
 }
 
 /* Chinglish replacements — inherit the page's typography, mark subtly */
-.mandopop-chinglish {
+.mandopop-diglot {
   text-decoration: underline dotted rgba(0, 255, 136, 0.55) !important;
   text-underline-offset: 2px !important;
   cursor: help !important;

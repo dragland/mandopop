@@ -12,11 +12,15 @@
   'use strict';
 
   // Never rewrite text the user is editing, code, or our own UI.
-  const SKIP_SELECTOR = 'script,style,noscript,textarea,input,select,code,pre,#mandopop-popup,.mandopop-chinglish';
-  const NODES_PER_IDLE_SLICE = 200;
+  const SKIP_SELECTOR = 'script,style,noscript,textarea,input,select,code,pre,#mandopop-popup,.mandopop-diglot';
+  // Forces a slice through even on pages that never go idle (rAF loops,
+  // chatty SPAs) — without it the queue grows for the life of the tab.
+  const IDLE_TIMEOUT_MS = 2000;
+  const MIN_IDLE_MS = 4;
 
   let matchText = null;
   let map = null;
+  let maxPhraseTokens = 3;
   let enabled = true;
   let observer = null;
   const queue = [];
@@ -32,7 +36,7 @@
   }
 
   function replaceNode(node) {
-    const segments = matchText(node.data, map);
+    const segments = matchText(node.data, map, maxPhraseTokens);
     if (!segments) return;
 
     const fragment = document.createDocumentFragment();
@@ -42,7 +46,7 @@
         continue;
       }
       const span = document.createElement('span');
-      span.className = 'mandopop-chinglish';
+      span.className = 'mandopop-diglot';
       span.lang = 'zh-CN';
       span.textContent = segment.s;
       span.title = `${segment.p} · ${segment.original}`;
@@ -70,25 +74,31 @@
     drain();
   }
 
-  // The initial sweep can be thousands of nodes; do it in idle slices so
-  // page load never stutters. Correctness doesn't depend on finishing —
-  // every slice re-checks that its nodes are still live and eligible.
+  // The initial sweep can be thousands of nodes; do it in deadline-bounded
+  // idle slices so page load never stutters. The observer is disconnected
+  // while we write — disconnect also discards pending records, and nothing
+  // else can mutate between our synchronous writes — so our own fragments
+  // are never re-enqueued and re-matched.
   function drain() {
     if (draining || queue.length === 0) return;
     draining = true;
-    requestIdleCallback(function step() {
-      let budget = NODES_PER_IDLE_SLICE;
-      while (queue.length > 0 && budget-- > 0) {
+    requestIdleCallback(function step(deadline) {
+      observer?.disconnect();
+      // A timed-out slice never sees idle time; grant it a small budget so
+      // busy pages still make progress.
+      let forced = deadline.didTimeout ? 50 : 0;
+      while (queue.length > 0 && (deadline.timeRemaining() > MIN_IDLE_MS || forced-- > 0)) {
         const node = queue.shift();
         if (active() && node.isConnected && replaceable(node)) replaceNode(node);
       }
-      if (queue.length > 0) requestIdleCallback(step);
+      if (observer) observe();
+      if (queue.length > 0) requestIdleCallback(step, { timeout: IDLE_TIMEOUT_MS });
       else draining = false;
-    });
+    }, { timeout: IDLE_TIMEOUT_MS });
   }
 
   function observe() {
-    observer = new MutationObserver((mutations) => {
+    observer ??= new MutationObserver((mutations) => {
       if (!active()) return;
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) enqueue(node);
@@ -98,7 +108,7 @@
   }
 
   function unapply() {
-    for (const span of document.querySelectorAll('.mandopop-chinglish')) {
+    for (const span of document.querySelectorAll('.mandopop-diglot')) {
       span.replaceWith(document.createTextNode(span.dataset.original));
     }
   }
@@ -114,24 +124,30 @@
     }
   }
 
-  async function init() {
-    ({ matchText } = await import(chrome.runtime.getURL('lib/chinglish.js')));
+  let longestKeyLength = null;
 
-    const [{ replacementMap }, { chinglish }] = await Promise.all([
+  function setMap(next) {
+    map = next && Object.keys(next).length > 0 ? next : null;
+    maxPhraseTokens = map ? longestKeyLength(map) : 3;
+  }
+
+  async function init() {
+    ({ matchText, longestKeyLength } = await import(chrome.runtime.getURL('lib/diglot.js')));
+
+    const [{ replacementMap }, { diglotWeave }] = await Promise.all([
       chrome.storage.local.get('replacementMap'),
-      chrome.storage.sync.get('chinglish'),
+      chrome.storage.sync.get('diglotWeave'),
     ]);
-    map = replacementMap && Object.keys(replacementMap).length > 0 ? replacementMap : null;
-    enabled = chinglish !== false;
+    setMap(replacementMap);
+    enabled = diglotWeave !== false;
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local' && 'replacementMap' in changes) {
-        const next = changes.replacementMap.newValue;
-        map = next && Object.keys(next).length > 0 ? next : null;
+        setMap(changes.replacementMap.newValue);
         restart();
       }
-      if (area === 'sync' && 'chinglish' in changes) {
-        enabled = changes.chinglish.newValue !== false;
+      if (area === 'sync' && 'diglotWeave' in changes) {
+        enabled = changes.diglotWeave.newValue !== false;
         restart();
       }
     });

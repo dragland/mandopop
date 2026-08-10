@@ -220,6 +220,10 @@
       border-color: #00ff88;
     }
 
+    #signInForm .setting-description {
+      margin: 4px 0 10px;
+    }
+
     .traverse-btn {
       padding: 7px 12px;
       background: #0a3d2a;
@@ -308,9 +312,26 @@
   <div class="traverse">
     <div class="traverse-title">Traverse</div>
 
+    <!-- Outside the account panel: the toggle governs page rewriting, which
+         can outlive the session (an expired token must not strand it). -->
+    <div class="setting">
+      <div>
+        <div class="setting-label">Diglot weave</div>
+        <div class="setting-description">Weave hanzi you've learned into English pages as you browse</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="diglotWeave">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
     <form id="signInForm" hidden>
-      <input type="email" id="traverseEmail" placeholder="email" autocomplete="username" required>
-      <input type="password" id="traversePassword" placeholder="password" autocomplete="current-password" required>
+      <div class="setting-description">
+        Sign in with your Traverse account to sync which words you've learned.
+        Your password is used once and never stored.
+      </div>
+      <input type="email" id="traverseEmail" placeholder="email" autocomplete="username" aria-label="Traverse email" required>
+      <input type="password" id="traversePassword" placeholder="password" autocomplete="current-password" aria-label="Traverse password" required>
       <div class="traverse-actions">
         <button type="submit" class="traverse-btn" id="signInBtn">Sign in</button>
       </div>
@@ -318,17 +339,6 @@
 
     <div id="traverseAccount" hidden>
       <div class="traverse-status" id="traverseStatus"></div>
-
-      <div class="setting">
-        <div>
-          <div class="setting-label">Chinglish</div>
-          <div class="setting-description">Swap English words you know for their hanzi while browsing</div>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" id="chinglish">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
 
       <div class="traverse-actions">
         <button type="button" class="traverse-btn traverse-btn-quiet" id="signOutBtn">Sign out</button>

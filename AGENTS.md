@@ -3,12 +3,12 @@
 ## Entry Points
 
 - Chrome: `background.js` owns dictionary load/cache/lookup; `content.js` owns selection UI; `content/cedict_formatter.js` is a classic no-build helper loaded first.
-- Chrome Traverse sync: `lib/traverse/` (auth, REST, sync orchestration, hanzi-only parser) -> `chrome.storage.local` mirror -> `lib/chinglish.js` replacement table -> `content/chinglish.js` page pass. Popup owns sign-in/status; a 6h alarm plus browser startup drive unforced syncs.
+- Chrome Traverse sync: `lib/traverse/` (auth, REST, sync orchestration, hanzi-only parser) -> `chrome.storage.local` mirror -> `lib/diglot.js` replacement table -> `content/diglot.js` page pass. Popup owns sign-in/status; a 6h alarm plus browser startup drive unforced syncs.
 - Shared JS: `lib/normalize.js` handles lookup variants; `lib/pinyin.js` handles pinyin and CEDICT English key extraction.
 - Dictionary: `npm run dict:build` (= `scripts/preprocess_cedict.js`) reads committed `cedict_ts.u8` + `subtlex_ch.tsv` and regenerates `cedict.json` + `dict_version.js`. Both are generated *and* committed. Android: `cd android && ./gradlew buildDictionary`.
 - Android lookup: `TextSelectionService` -> `DictionaryRepository` -> overlay/TTS.
 - Android Traverse sync: `traverse/` (auth, REST, orchestration) -> `data/` (Room mirror) -> `notification/DueNotifier`; driven by `work/SyncWorker`, `TraverseExitWatcher`, `NotificationRefreshReceiver`.
-- Parity tests: browser and Android share cases from `testdata/`.
+- Parity tests: browser and Android share cases from `testdata/` (`segmentation_cases.tsv` has no Android reader yet).
 
 ## Checks
 
@@ -31,7 +31,7 @@
 
 ## Dictionary
 
-- `cedict.json` (v2): `{ v, entries: [{s,p,d}], index: { "english key": [entryId] } }`. `entries` is complete — including entries no English key reaches, because Android looks up by hanzi. `index` holds ids, not repeated objects. Only `lib/normalize.js#lookup` knows this shape.
+- `cedict.json` (v2): `{ v, entries: [{s,p,d}], index: { "english key": [entryId] } }`. `entries` is complete — including entries no English key reaches, because Android looks up by hanzi. `index` holds ids, not repeated objects. Three modules know this shape — `lib/normalize.js#lookup`, `lib/diglot.js`, `lib/traverse/known_words.js` — change it in all three or not at all.
 - `rankForKey` orders English->Chinese candidates: primary-sense gloss match, then SUBTLEX-CH frequency, then gloss length, then id. Sense *position* is load-bearing — accepting any matching sense promotes 门 for "school" and 牢 for "fast". Frequency replaced a hand-curated common-word list and a prefer-2-characters rule; do not reintroduce either.
 - Reverse lookup is `lookupBySimplified`, backed by the `entries_simplified` index. It is ordered by row id, and CC-CEDICT puts surnames and cross-references first, so 花 resolves to `Huā` and 和 to "old variant of 和" unless a caller breaks the tie — `KnownWordIndex.preferredEntry` does, using CC-CEDICT's own labels. Sense *order within* an entry is unfixable from here: 号 lists "to call out" ahead of "day of the month".
 
@@ -61,7 +61,10 @@
 - Token storage is Tink + DataStore. `EncryptedSharedPreferences` is deprecated — do not "simplify" back to it.
 - The extension is a second Traverse client and mirrors the phone's politeness exactly: heartbeat-gated pulls, 150-document sequential `batchGet` 3 s apart, the wipe/missing-document/broken-template guards, and the banked heartbeat. Do not let the two clients' gating drift, and do not add unconditional pulls here either.
 - The extension carries a second card parser (`lib/traverse/card_parser.js`), hanzi-only: pinyin and glosses come from `cedict.json` at display time, so the pinyin-alignment and English halves are deliberately absent. Its `PARSER_VERSION` versions the extension's own cache, independent of android `CardParser.VERSION` — bump it on any JS extraction change. Segmentation parity is pinned by shared `testdata/segmentation_cases.tsv` (the Android reader for it does not exist yet). Any extraction change lands in both parsers or in neither.
-- Chinglish replacement is decided entirely at sync time, offline: `buildReplacementMap` maps an English key only to a known word with an exact gloss for it (`exactGlossRank`) — accepting any matching sense is how 门 replaces "school" and 牢 replaces "fast". The content script is a dumb match against the finished table; page text has no path to the network.
+- Replacement ("Diglot weave" in the UI, `diglot` in code) is decided entirely at sync time, offline: `buildReplacementMap` maps an English key only to a known word with an exact gloss for it (`exactGlossRank`) — the same sense-position risk `rankForKey` guards against. The content script is a dumb match against the finished table; page text has no path to the network.
+- Extension tokens live plaintext in `chrome.storage.local` — MV3 has no keystore, and an in-extension encryption key would sit beside the data. Do not round-trip on "hardening" it.
+- A dead refresh token signs the extension out but **keeps** the mirror and the weave running — expiry is involuntary, and the mirror costs ~940 billed reads to refill. Deliberate asymmetry with explicit sign-out, which wipes everything. The weave toggle sits outside the account panel for exactly this state.
+- Every sync storage write is fenced on the account that started it (`guardedSet`); the empty-pull wipe guard compares against the *previous rows*, not success bookkeeping. Both close mid-drain windows — do not "simplify" them away.
 
 ## UX Gotchas
 
@@ -75,4 +78,5 @@
 - `setOngoing(true)` does not prevent dismissal on Android 14+. Persistence is the `deleteIntent` re-post, which stops at zero due.
 - A posted notification stores its icon as a bare resource id, and adding drawables shifts ids — hence the re-post on `MY_PACKAGE_REPLACED`.
 - Changing `android:icon` needs a device **reboot** to show up: `system_server` caches parsed manifest data per package. Restarting SystemUI does not clear it, and force-stopping SystemUI can destroy the user's wallpaper.
-- Chinglish spans show hanzi only; pinyin and the original word sit in the hover title — same recall philosophy as the notification. All-caps tokens are never replaced (CAT scans stay CAT scans), and editable text, code, and `pre` are never rewritten.
+- Diglot-weave spans show hanzi only; pinyin and the original word sit in the hover title — same recall philosophy as the notification. All-caps tokens are never replaced (CAT scans stay CAT scans), and editable text, code, and `pre` are never rewritten.
+- Rewriting text nodes can break framework-managed DOM (React's `removeChild` NotFoundError — the Google Translate failure). Isolated worlds cannot see framework internals, so there is no reliable detection; the accepted mitigation is the weave toggle. A crashed page is fixed by toggling off and reloading.

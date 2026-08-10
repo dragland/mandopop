@@ -50,18 +50,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const accountPanel = document.getElementById('traverseAccount');
   const statusLine = document.getElementById('traverseStatus');
   const errorLine = document.getElementById('traverseError');
-  const chinglishToggle = document.getElementById('chinglish');
+  const diglotToggle = document.getElementById('diglotWeave');
   const syncBtn = document.getElementById('syncBtn');
   const signOutBtn = document.getElementById('signOutBtn');
 
-  let syncing = false;
-
   // Coverage names a state — the healthy one is a positive assertion, and
-  // the broken one leads with a number that is zero when healthy.
+  // the broken one leads with a number that is zero when healthy. Progress
+  // is read from the persisted sync state, not a popup-local flag, so a
+  // popup opened mid-drain still shows the drain.
   function coverageText(state) {
-    const { words, cards, fetched, readable } = state;
-    if (cards === undefined) return 'Not synced yet';
-    if (fetched < cards) return `${words} words · indexing ${fetched} of ${cards} cards`;
+    const { words, cards, fetched, readable, syncing } = state;
+    if (cards === undefined) return syncing ? 'syncing…' : 'Not synced yet';
+    if (syncing) return `${words ?? 0} words · indexing ${fetched ?? 0} of ${cards} cards`;
+    if (fetched < cards) return `${words} words · ${fetched} of ${cards} cards indexed`;
     if (readable < cards) return `${words} words · ${cards - readable} of ${cards} cards unreadable`;
     return `${words} words · all ${cards} cards indexed`;
   }
@@ -73,58 +74,72 @@ document.addEventListener('DOMContentLoaded', async () => {
     const signedIn = Boolean(traverseAuth);
     signInForm.hidden = signedIn;
     accountPanel.hidden = !signedIn;
-    if (!signedIn) {
-      errorLine.textContent = '';
-      return;
-    }
 
     const state = traverseSyncState ?? {};
-    statusLine.textContent = syncing
-      ? `${traverseAuth.email} · syncing…`
-      : `${traverseAuth.email} · ${coverageText(state)}`;
+    if (signedIn) {
+      statusLine.textContent = `${traverseAuth.email} · ${coverageText(state)}`;
+    }
+    // Signed out, lastError still renders — "session expired" must not
+    // vanish along with the account panel.
     errorLine.textContent = state.lastError ?? '';
   }
 
   signInForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     signInBtn.disabled = true;
+    signInBtn.textContent = 'Signing in…';
     errorLine.textContent = '';
-    const response = await chrome.runtime.sendMessage({
-      type: 'traverse.signIn',
-      email: document.getElementById('traverseEmail').value.trim(),
-      password: document.getElementById('traversePassword').value,
-    });
-    signInBtn.disabled = false;
-    if (response?.ok) {
-      runSync(); // joins the drain the background already started
-    } else {
-      errorLine.textContent = response?.error ?? 'Sign-in failed';
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'traverse.signIn',
+        email: document.getElementById('traverseEmail').value.trim(),
+        password: document.getElementById('traversePassword').value,
+      });
+      if (response?.ok) {
+        runSync(); // joins the drain the background already started
+      } else {
+        errorLine.textContent = response?.error ?? 'Sign-in failed';
+      }
+    } catch (error) {
+      errorLine.textContent = `Sign-in interrupted: ${error.message}`;
+    } finally {
+      signInBtn.disabled = false;
+      signInBtn.textContent = 'Sign in';
     }
   });
 
   async function runSync() {
-    syncing = true;
     syncBtn.disabled = true;
-    renderTraverse();
-    await chrome.runtime.sendMessage({ type: 'traverse.sync' });
-    syncing = false;
-    syncBtn.disabled = false;
-    renderTraverse();
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'traverse.sync' });
+      if (response?.status === 'failure' && response.error) {
+        errorLine.textContent = response.error;
+      }
+    } catch (error) {
+      errorLine.textContent = `Sync interrupted: ${error.message}`;
+    } finally {
+      syncBtn.disabled = false;
+      renderTraverse();
+    }
   }
 
   syncBtn.addEventListener('click', runSync);
 
   signOutBtn.addEventListener('click', async () => {
-    await chrome.runtime.sendMessage({ type: 'traverse.signOut' });
+    try {
+      await chrome.runtime.sendMessage({ type: 'traverse.signOut' });
+    } catch (error) {
+      errorLine.textContent = `Sign-out failed: ${error.message}`;
+    }
     renderTraverse();
   });
 
-  chinglishToggle.addEventListener('change', () => {
-    save({ chinglish: chinglishToggle.checked });
+  diglotToggle.addEventListener('change', () => {
+    save({ diglotWeave: diglotToggle.checked });
   });
 
-  const { chinglish } = await chrome.storage.sync.get(['chinglish']);
-  chinglishToggle.checked = chinglish !== false;
+  const { diglotWeave } = await chrome.storage.sync.get(['diglotWeave']);
+  diglotToggle.checked = diglotWeave !== false;
 
   // Live-update while the background sync writes progress.
   chrome.storage.onChanged.addListener((changes, area) => {

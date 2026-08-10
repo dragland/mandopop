@@ -7,7 +7,8 @@ import { lookup } from './lib/normalize.js';
 import { DICT_HASH } from './dict_version.js';
 import { signIn, signOut } from './lib/traverse/auth.js';
 import {
-  sync, SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY,
+  sync, recordError,
+  SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY,
 } from './lib/traverse/sync.js';
 
 // IndexedDB constants
@@ -145,14 +146,22 @@ const SYNC_PERIOD_MINUTES = 6 * 60;
 
 async function traverseSync(force) {
   const dict = await loadDictionary();
-  if (!dict) return { status: 'failure', error: 'Dictionary failed to load' };
+  if (!dict) {
+    const error = 'Dictionary failed to load — sync cannot run';
+    await recordError(error);
+    return { status: 'failure', error };
+  }
   return sync(dict, { force });
 }
 
 // Create-if-absent: an unconditional create would reset the countdown on
-// every worker wake, and lookups wake the worker constantly.
+// every worker wake, and lookups wake the worker constantly. The short
+// first delay covers an already-signed-in profile that would otherwise
+// wait a full period after an extension update.
 chrome.alarms.get(SYNC_ALARM).then((alarm) => {
-  if (!alarm) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+  if (!alarm) {
+    chrome.alarms.create(SYNC_ALARM, { delayInMinutes: 1, periodInMinutes: SYNC_PERIOD_MINUTES });
+  }
 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SYNC_ALARM) traverseSync(false);
@@ -180,11 +189,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   if (request.type === 'traverse.signOut') {
-    signOut()
-      .then(() => chrome.storage.local.remove([
-        SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY,
-      ]))
-      .then(() => sendResponse({ ok: true }));
+    // Derived data first, auth last: a worker death in between leaves a
+    // signed-in account that re-derives, never orphaned data. The sync
+    // fence (guardedSet) keeps any in-flight drain from resurrecting it.
+    chrome.storage.local.remove([
+      SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY,
+    ])
+      .then(() => signOut())
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
   if (request.type === 'traverse.sync') {

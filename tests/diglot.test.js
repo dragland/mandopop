@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildReplacementMap, matchText } from '../lib/chinglish.js';
+import { buildReplacementMap, matchText, longestKeyLength } from '../lib/diglot.js';
 
 // Minimal dictionary in cedict.json v2 shape. Index arrays are in
 // rankForKey order, as the build emits them.
@@ -87,6 +87,24 @@ describe('matchText', () => {
   it('returns null when nothing matches', () => {
     expect(matchText('nothing here', map)).toBe(null);
     expect(matchText('', map)).toBe(null);
+  });
+
+  it('never matches inherited Object.prototype keys', () => {
+    // "constructor" is an ordinary English word AND a prototype property of
+    // every plain object; indexing instead of hasOwn turned it into the
+    // literal text "undefined" on any programming page.
+    expect(matchText('the constructor pattern', map)).toBe(null);
+    expect(matchText('hasOwnProperty toString valueOf', map)).toBe(null);
+  });
+
+  it('measures the longest key so single-word maps skip phrase spans', () => {
+    expect(longestKeyLength({ cat: {}, very: {} })).toBe(1);
+    expect(longestKeyLength({ cat: {}, 'get up': {} })).toBe(2);
+    // A 1-token limit must not stop "get up" from matching when present.
+    expect(matchText('cats sleep', { cat: { s: '猫', p: 'māo' } }, 1)).toEqual([
+      { original: 'cats', s: '猫', p: 'māo' },
+      { text: ' sleep' },
+    ]);
   });
 
   it('replaces capitalized sentence-initial words', () => {
