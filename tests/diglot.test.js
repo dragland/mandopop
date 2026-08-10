@@ -143,6 +143,19 @@ describe('buildReplacementMap', () => {
     expect(map['surname cong']).toBeUndefined();
   });
 
+  it('audit-refused pairs fall to the next candidate, not to nothing', () => {
+    // her -> 其 is fleet-confirmed garbage (其 is never an object pronoun);
+    // with it refused the canonical falls to 她.
+    const fixture = {
+      entries: [
+        { s: '其', p: 'qí', d: ['his', 'her', 'its', 'their'] },
+        { s: '她', p: 'tā', d: ['she', 'her'] },
+      ],
+      index: { her: [0, 1] },
+    };
+    expect(buildReplacementMap(['其', '她'], fixture)['her']).toEqual({ s: '她', p: 'tā' });
+  });
+
   it('domain labels do not disqualify — "(meteorology) climate" IS climate', () => {
     const domains = {
       entries: [
