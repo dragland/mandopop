@@ -52,12 +52,19 @@ describe('buildReplacementMap', () => {
     // compounds like 去年, and swapping it standalone wove "last week"
     // into the non-word 去周 on a real page.
     const qualified = {
-      entries: [{ s: '去', p: 'qù', d: ['to go', '(of a time etc) last', 'to remove'] }],
-      index: { 'last': [0], 'go': [0] },
+      entries: [
+        { s: '去', p: 'qù', d: ['to go', '(of a time etc) last', 'to remove'] },
+        // 吗's colloquial reading outranks 什么 for "what" on raw frequency
+        // — the frequency belongs to the question particle, not this sense.
+        { s: '吗', p: 'má', d: ['(coll.) what?'] },
+        { s: '什么', p: 'shén me', d: ['what?', 'something; anything'] },
+      ],
+      index: { 'last': [0], 'go': [0], 'what': [1, 2] },
     };
-    const map = buildReplacementMap(['去'], qualified);
+    const map = buildReplacementMap(['去', '吗', '什么'], qualified);
     expect(map['last']).toBeUndefined();
     expect(map['go']).toEqual({ s: '去', p: 'qù' });
+    expect(map['what']).toEqual({ s: '什么', p: 'shén me' });
   });
 });
 
