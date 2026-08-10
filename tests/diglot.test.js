@@ -112,6 +112,21 @@ describe('buildReplacementMap', () => {
     expect(map['your']).toBeUndefined();
   });
 
+  it('bound forms and surnames never weave, and the label scopes its run', () => {
+    const bound = {
+      entries: [
+        { s: '隐', p: 'yǐn', d: ['(bound form) secret; hidden; concealed; crypto-'] },
+        { s: '雷', p: 'léi', d: ['thunder', '(bound form) (military) mine'] },
+        { s: '从', p: 'Cóng', d: ['surname Cong'] },
+      ],
+      index: { 'concealed': [0], 'thunder': [1], 'surname cong': [2] },
+    };
+    const map = buildReplacementMap(['隐', '雷', '从'], bound);
+    expect(map['concealed']).toBeUndefined();
+    expect(map['thunder']).toEqual({ s: '雷', p: 'léi' }); // precedes the bound-form run
+    expect(map['surname cong']).toBeUndefined();
+  });
+
   it('domain labels do not disqualify — "(meteorology) climate" IS climate', () => {
     const domains = {
       entries: [
