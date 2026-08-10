@@ -12,7 +12,7 @@
   'use strict';
 
   // Never rewrite text the user is editing, code, or our own UI.
-  const SKIP_SELECTOR = 'script,style,noscript,textarea,input,select,code,pre,#mandopop-popup,.mandopop-diglot';
+  const SKIP_SELECTOR = 'script,style,noscript,textarea,input,select,code,pre,#mandopop-popup,#mandopop-weave-tip,.mandopop-diglot';
   // Forces a slice through even on pages that never go idle (rAF loops,
   // chatty SPAs) — without it the queue grows for the life of the tab.
   const IDLE_TIMEOUT_MS = 2000;
@@ -49,8 +49,10 @@
       span.className = 'mandopop-diglot';
       span.lang = 'zh-CN';
       span.textContent = segment.s;
-      span.title = `${segment.p} · ${segment.original}`;
+      // No native title — its fixed ~1s hover delay is deadly in the
+      // recall loop. The instant tooltip below carries the reveal.
       span.dataset.original = segment.original;
+      span.dataset.pinyin = segment.p;
       fragment.appendChild(span);
     }
     node.parentNode.replaceChild(fragment, node);
@@ -107,7 +109,47 @@
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  // One shared tooltip, shown instantly on hover — the reveal is the
+  // feature's core loop, so it must not wait on the native title delay.
+  let tip = null;
+
+  function tooltip() {
+    if (tip) return tip;
+    tip = document.createElement('div');
+    tip.id = 'mandopop-weave-tip';
+    tip.setAttribute('role', 'tooltip');
+    tip.append(document.createElement('span'), document.createElement('span'));
+    tip.firstChild.className = 'mandopop-weave-tip-pinyin';
+    document.body.appendChild(tip);
+    return tip;
+  }
+
+  function showTip(span) {
+    const t = tooltip();
+    t.firstChild.textContent = span.dataset.pinyin;
+    t.lastChild.textContent = ` · ${span.dataset.original}`;
+    t.classList.add('mandopop-visible');
+    const rect = span.getBoundingClientRect();
+    const left = Math.min(Math.max(rect.left, 4), window.innerWidth - t.offsetWidth - 4);
+    const below = rect.bottom + 4;
+    const top = below + t.offsetHeight > window.innerHeight ? rect.top - t.offsetHeight - 4 : below;
+    t.style.left = `${left}px`;
+    t.style.top = `${top}px`;
+  }
+
+  function hideTip() {
+    tip?.classList.remove('mandopop-visible');
+  }
+
+  document.addEventListener('mouseover', (event) => {
+    const span = event.target.closest?.('.mandopop-diglot');
+    if (span) showTip(span);
+    else hideTip();
+  });
+  document.addEventListener('scroll', hideTip, { passive: true, capture: true });
+
   function unapply() {
+    hideTip();
     for (const span of document.querySelectorAll('.mandopop-diglot')) {
       span.replaceWith(document.createTextNode(span.dataset.original));
     }

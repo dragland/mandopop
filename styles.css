@@ -165,3 +165,29 @@
   text-underline-offset: 2px !important;
   cursor: help !important;
 }
+
+/* Instant reveal tooltip for diglot-weave spans */
+#mandopop-weave-tip {
+  display: none !important;
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  background: #0d0d0d !important;
+  border: 1px solid #2a2a2a !important;
+  border-radius: 6px !important;
+  padding: 4px 10px !important;
+  font-family: 'SF Mono', 'Fira Code', 'Monaco', 'Consolas', monospace !important;
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  color: #888888 !important;
+  pointer-events: none !important;
+  white-space: nowrap !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+#mandopop-weave-tip.mandopop-visible {
+  display: block !important;
+}
+
+.mandopop-weave-tip-pinyin {
+  color: #00d4ff !important;
+}
