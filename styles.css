@@ -158,3 +158,10 @@
   position: relative !important;
   z-index: 1 !important;
 }
+
+/* Chinglish replacements — inherit the page's typography, mark subtly */
+.mandopop-chinglish {
+  text-decoration: underline dotted rgba(0, 255, 136, 0.55) !important;
+  text-underline-offset: 2px !important;
+  cursor: help !important;
+}

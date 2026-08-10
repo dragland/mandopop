@@ -5,6 +5,10 @@
 
 import { lookup } from './lib/normalize.js';
 import { DICT_HASH } from './dict_version.js';
+import { signIn, signOut } from './lib/traverse/auth.js';
+import {
+  sync, SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY,
+} from './lib/traverse/sync.js';
 
 // IndexedDB constants
 const DB_NAME = 'mandopop';
@@ -132,7 +136,32 @@ async function loadDictionary() {
   return dictionaryLoading;
 }
 
-// Handle messages from content scripts
+// Traverse sync. The alarm exists whether or not the user is signed in —
+// sync() answers not-signed-in with zero network, and one steady alarm
+// beats managing its lifecycle across sign-in/out. Each firing costs one
+// heartbeat document read unless something actually changed.
+const SYNC_ALARM = 'traverse-sync';
+const SYNC_PERIOD_MINUTES = 6 * 60;
+
+async function traverseSync(force) {
+  const dict = await loadDictionary();
+  if (!dict) return { status: 'failure', error: 'Dictionary failed to load' };
+  return sync(dict, { force });
+}
+
+// Create-if-absent: an unconditional create would reset the countdown on
+// every worker wake, and lookups wake the worker constantly.
+chrome.alarms.get(SYNC_ALARM).then((alarm) => {
+  if (!alarm) chrome.alarms.create(SYNC_ALARM, { periodInMinutes: SYNC_PERIOD_MINUTES });
+});
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === SYNC_ALARM) traverseSync(false);
+});
+chrome.runtime.onStartup.addListener(() => {
+  traverseSync(false);
+});
+
+// Handle messages from content scripts and the popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'lookup') {
     loadDictionary().then(() => {
@@ -140,6 +169,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ result });
     });
     return true; // Async response
+  }
+  if (request.type === 'traverse.signIn') {
+    signIn(request.email, request.password)
+      .then((account) => {
+        sendResponse({ ok: true, email: account.email });
+        traverseSync(true); // first drain runs behind the response
+      })
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (request.type === 'traverse.signOut') {
+    signOut()
+      .then(() => chrome.storage.local.remove([
+        SCHEDULES_KEY, CARDS_KEY, SYNC_STATE_KEY, KNOWN_WORDS_KEY, REPLACEMENT_MAP_KEY,
+      ]))
+      .then(() => sendResponse({ ok: true }));
+    return true;
+  }
+  if (request.type === 'traverse.sync') {
+    traverseSync(true).then(sendResponse);
+    return true;
   }
 });
 

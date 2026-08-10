@@ -187,6 +187,89 @@
       font-style: italic;
       text-shadow: 0 0 8px rgba(0, 212, 255, 0.3);
     }
+
+    /* Traverse */
+    .traverse {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #1a1a1a;
+    }
+
+    .traverse-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #e8e8e8;
+      margin-bottom: 8px;
+    }
+
+    .traverse input[type="email"],
+    .traverse input[type="password"] {
+      width: 100%;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      color: #e8e8e8;
+      font-family: inherit;
+      font-size: 12px;
+    }
+
+    .traverse input:focus {
+      outline: none;
+      border-color: #00ff88;
+    }
+
+    .traverse-btn {
+      padding: 7px 12px;
+      background: #0a3d2a;
+      border: 1px solid #00ff88;
+      border-radius: 6px;
+      color: #00ff88;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .traverse-btn:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .traverse-btn.traverse-btn-quiet {
+      background: transparent;
+      border-color: #2a2a2a;
+      color: #999999;
+    }
+
+    .traverse-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+
+    .traverse-status {
+      font-size: 11px;
+      color: #8a8a8a;
+      line-height: 1.5;
+    }
+
+    .traverse-error {
+      font-size: 11px;
+      color: #ff5f56;
+      line-height: 1.5;
+      margin-top: 6px;
+      word-break: break-word;
+    }
+
+    .traverse-error:empty {
+      display: none;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -220,6 +303,40 @@
   <div class="preview">
     <div class="preview-chinese" id="previewChinese">你好</div>
     <div class="preview-pinyin">nǐ hǎo</div>
+  </div>
+
+  <div class="traverse">
+    <div class="traverse-title">Traverse</div>
+
+    <form id="signInForm" hidden>
+      <input type="email" id="traverseEmail" placeholder="email" autocomplete="username" required>
+      <input type="password" id="traversePassword" placeholder="password" autocomplete="current-password" required>
+      <div class="traverse-actions">
+        <button type="submit" class="traverse-btn" id="signInBtn">Sign in</button>
+      </div>
+    </form>
+
+    <div id="traverseAccount" hidden>
+      <div class="traverse-status" id="traverseStatus"></div>
+
+      <div class="setting">
+        <div>
+          <div class="setting-label">Chinglish</div>
+          <div class="setting-description">Swap English words you know for their hanzi while browsing</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="chinglish">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="traverse-actions">
+        <button type="button" class="traverse-btn traverse-btn-quiet" id="signOutBtn">Sign out</button>
+        <button type="button" class="traverse-btn" id="syncBtn">Sync now</button>
+      </div>
+    </div>
+
+    <div class="traverse-error" id="traverseError"></div>
   </div>
 
   <div class="attribution">

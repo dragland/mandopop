@@ -3,6 +3,7 @@
 ## Entry Points
 
 - Chrome: `background.js` owns dictionary load/cache/lookup; `content.js` owns selection UI; `content/cedict_formatter.js` is a classic no-build helper loaded first.
+- Chrome Traverse sync: `lib/traverse/` (auth, REST, sync orchestration, hanzi-only parser) -> `chrome.storage.local` mirror -> `lib/chinglish.js` replacement table -> `content/chinglish.js` page pass. Popup owns sign-in/status; a 6h alarm plus browser startup drive unforced syncs.
 - Shared JS: `lib/normalize.js` handles lookup variants; `lib/pinyin.js` handles pinyin and CEDICT English key extraction.
 - Dictionary: `npm run dict:build` (= `scripts/preprocess_cedict.js`) reads committed `cedict_ts.u8` + `subtlex_ch.tsv` and regenerates `cedict.json` + `dict_version.js`. Both are generated *and* committed. Android: `cd android && ./gradlew buildDictionary`.
 - Android lookup: `TextSelectionService` -> `DictionaryRepository` -> overlay/TTS.
@@ -19,8 +20,7 @@
 ## Constraints
 
 - **No content egress.** Text the user reads, types, or selects must never leave the device. No runtime lookup or translation may call a remote model or service.
-- The Chrome extension is fully offline at runtime. Downloading CC-CEDICT is a dev-time build step.
-- The Android app may sync the user's own learning state (Traverse/Firebase). State sync, not content lookup — the only permitted runtime network use.
+- Both platforms may sync the user's own learning state (Traverse/Firebase). State sync, not content lookup — the only permitted runtime network use, on Android and in the extension (`lib/traverse/`). Lookups and Chinglish replacement are fully offline; downloading CC-CEDICT is a dev-time build step.
 - One dictionary source, one parser: CC-CEDICT -> `preprocess_cedict.js` -> `cedict.json` -> Android SQLite. `build_dictionary.py` is a loader; nothing else may read `cedict_ts.u8`. Both platforms consume the same `cedict.json`, which is what stops English->Chinese drifting between them — `validate_lookup_content` fails the Android build if the SQLite projection disagrees.
 - `subtlex_ch.tsv` is a ranking signal, not a dictionary. Removing it degrades ordering; it cannot break a lookup.
 - Do not load the dictionary in `content.js`; use the service worker.
@@ -59,6 +59,9 @@
 - Android's regex engine is ICU, not the JVM's, and rejects unescaped `}}` and `]` that unit tests accept. A pattern that passes `testDebugUnitTest` can still throw `PatternSyntaxException` on a device.
 - CC-CEDICT's own labels decide senses, not case or position. Lowercasing every sentence-initial capital fixed 马 and 花 but broke 周日, which CC-CEDICT itself capitalises as "Sunday". `KnownWordIndex.preferredEntry` skips a `surname `-labelled or cross-reference gloss (`variant of…`, `see …`) when a same-reading definition exists, and `canonicalise` makes the stored capital follow the dictionary rather than the card.
 - Token storage is Tink + DataStore. `EncryptedSharedPreferences` is deprecated — do not "simplify" back to it.
+- The extension is a second Traverse client and mirrors the phone's politeness exactly: heartbeat-gated pulls, 150-document sequential `batchGet` 3 s apart, the wipe/missing-document/broken-template guards, and the banked heartbeat. Do not let the two clients' gating drift, and do not add unconditional pulls here either.
+- The extension carries a second card parser (`lib/traverse/card_parser.js`), hanzi-only: pinyin and glosses come from `cedict.json` at display time, so the pinyin-alignment and English halves are deliberately absent. Its `PARSER_VERSION` versions the extension's own cache, independent of android `CardParser.VERSION` — bump it on any JS extraction change. Segmentation parity is pinned by shared `testdata/segmentation_cases.tsv` (the Android reader for it does not exist yet). Any extraction change lands in both parsers or in neither.
+- Chinglish replacement is decided entirely at sync time, offline: `buildReplacementMap` maps an English key only to a known word with an exact gloss for it (`exactGlossRank`) — accepting any matching sense is how 门 replaces "school" and 牢 replaces "fast". The content script is a dumb match against the finished table; page text has no path to the network.
 
 ## UX Gotchas
 
@@ -72,3 +75,4 @@
 - `setOngoing(true)` does not prevent dismissal on Android 14+. Persistence is the `deleteIntent` re-post, which stops at zero due.
 - A posted notification stores its icon as a bare resource id, and adding drawables shifts ids — hence the re-post on `MY_PACKAGE_REPLACED`.
 - Changing `android:icon` needs a device **reboot** to show up: `system_server` caches parsed manifest data per package. Restarting SystemUI does not clear it, and force-stopping SystemUI can destroy the user's wallpaper.
+- Chinglish spans show hanzi only; pinyin and the original word sit in the hover title — same recall philosophy as the notification. All-caps tokens are never replaced (CAT scans stay CAT scans), and editable text, code, and `pre` are never rewritten.
