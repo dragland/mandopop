@@ -188,8 +188,17 @@
   // the site so it is never woven again. (CDN-hosted frameworks may mask
   // the message as "Script error." — partial coverage, fail-safe only.)
   const FRAMEWORK_CRASH = /NotFoundError|not a child of this node|removeChild|insertBefore/;
+  // Long enough to stop a crash loop; short enough that one page's odd
+  // content can't permanently un-weave a hostname. A repeat crash after
+  // expiry just re-stamps it.
+  const WEAVE_DISABLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   let hasWoven = false;
   let disabledHere = false;
+
+  function disabledSitesOf(stored) {
+    const sites = stored.weaveDisabledSites;
+    return sites && !Array.isArray(sites) ? sites : {};
+  }
 
   function disableOnThisSite(reason) {
     if (disabledHere) return;
@@ -198,12 +207,15 @@
     observer = null;
     queue.length = 0;
     unapply();
-    console.warn(`[Mandopop] Diglot weave disabled on ${location.hostname}: ${reason}`);
+    console.warn(`[Mandopop] Diglot weave disabled on ${location.hostname} for 7 days: ${reason}`);
     chrome.storage.local.get('weaveDisabledSites').then((stored) => {
-      const sites = stored.weaveDisabledSites ?? [];
-      if (!sites.includes(location.hostname)) {
-        chrome.storage.local.set({ weaveDisabledSites: [...sites, location.hostname] });
-      }
+      const sites = disabledSitesOf(stored);
+      const now = Date.now();
+      const kept = Object.fromEntries(
+        Object.entries(sites).filter(([, at]) => now - at < WEAVE_DISABLE_TTL_MS),
+      );
+      kept[location.hostname] = now;
+      chrome.storage.local.set({ weaveDisabledSites: kept });
     });
   }
 
@@ -253,9 +265,11 @@
     setMap(replacementMap);
     enabled = diglotWeave !== false;
     audioEnabled = showAudio !== false;
-    if ((weaveDisabledSites ?? []).includes(location.hostname)) {
+    const disabledAt = disabledSitesOf({ weaveDisabledSites })[location.hostname];
+    if (disabledAt !== undefined && Date.now() - disabledAt < WEAVE_DISABLE_TTL_MS) {
       disabledHere = true;
-      console.info(`[Mandopop] Diglot weave stays off on ${location.hostname} (a page crash was detected here once)`);
+      const until = new Date(disabledAt + WEAVE_DISABLE_TTL_MS).toLocaleDateString();
+      console.info(`[Mandopop] Diglot weave stays off on ${location.hostname} until ${until} (a page crash was detected here)`);
     }
 
     chrome.storage.onChanged.addListener((changes, area) => {
