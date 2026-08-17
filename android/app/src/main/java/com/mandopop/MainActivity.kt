@@ -70,6 +70,7 @@ import com.mandopop.ui.MutedText
 import com.mandopop.ui.NeonGreen
 import com.mandopop.ui.PaleGreen
 import com.mandopop.ui.PanelBlack
+import com.mandopop.ui.AttributionFooter
 import com.mandopop.ui.LookupPreview
 import com.mandopop.ui.SectionLabel
 import com.mandopop.ui.ServiceStatusCard
@@ -286,6 +287,8 @@ private fun MandopopSettingsApp(
                     sync = traverseSync,
                     requestNotificationPermission = requestNotificationPermission,
                 )
+
+                AttributionFooter()
             }
         }
     }

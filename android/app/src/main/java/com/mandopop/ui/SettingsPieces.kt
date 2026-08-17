@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,14 +28,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mandopop.R
@@ -166,6 +176,74 @@ internal fun ToggleRow(
                 uncheckedTrackColor = BorderGreen,
             ),
         )
+    }
+}
+
+/**
+ * Dictionary credit plus author link, mirroring the extension popup's footer word for word.
+ * The popup is the copy of record; change wording on both platforms or neither.
+ */
+@Composable
+internal fun AttributionFooter() {
+    // One quiet step above the body color, mirroring the popup's #b3b3b3-over-#8a8a8a register;
+    // full PaleGreen is reserved for press/focus feedback.
+    val linkStyles = TextLinkStyles(
+        style = SpanStyle(
+            color = PaleGreen.copy(alpha = 0.7f),
+            textDecoration = TextDecoration.Underline,
+        ),
+        focusedStyle = SpanStyle(color = PaleGreen, textDecoration = TextDecoration.Underline),
+        pressedStyle = SpanStyle(color = PaleGreen, textDecoration = TextDecoration.Underline),
+    )
+    val uriHandler = LocalUriHandler.current
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = buildAnnotatedString {
+                append("Dictionary data: ")
+                withLink(
+                    LinkAnnotation.Url(
+                        "https://www.mdbg.net/chinese/dictionary?page=cc-cedict",
+                        linkStyles,
+                    ),
+                ) { append("CC-CEDICT") }
+                append(", licensed under ")
+                withLink(
+                    LinkAnnotation.Url(
+                        "https://creativecommons.org/licenses/by-sa/4.0/",
+                        linkStyles,
+                    ),
+                    // The license name's spaces are U+00A0: a narrow-screen wrap must not
+                    // split "CC BY-SA 4.0".
+                ) { append("CC BY-SA 4.0") }
+            },
+            color = MutedText,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+            textAlign = TextAlign.Center,
+        )
+        Row(
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(role = Role.Button, onClickLabel = "Open GitHub profile") {
+                    uriHandler.openUri("https://github.com/dragland")
+                }
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_github),
+                contentDescription = null,
+                tint = MutedText,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(text = "@dragland", color = MutedText, fontSize = 11.sp)
+        }
     }
 }
 
