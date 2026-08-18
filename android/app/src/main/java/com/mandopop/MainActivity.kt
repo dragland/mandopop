@@ -46,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import com.mandopop.briefing.BriefingEngine
 import com.mandopop.briefing.NotificationCatcher
 import com.mandopop.notification.DueNotifier
 import com.mandopop.notification.StatsTail
@@ -80,7 +82,7 @@ import com.mandopop.ui.AttributionFooter
 import com.mandopop.ui.LookupPreview
 import com.mandopop.ui.SectionLabel
 import com.mandopop.ui.ServiceStatusCard
-import com.mandopop.ui.BriefingPanel
+import com.mandopop.ui.BriefingToggle
 import com.mandopop.ui.SettingsPanel
 import com.mandopop.ui.ToggleRow
 import com.mandopop.ui.TraversePanel
@@ -289,6 +291,17 @@ private fun MandopopSettingsApp(
     val initial = remember { settingsStore.snapshot() }
     var showAudio by remember { mutableStateOf(initial.showAudio) }
     var playfulNoResult by remember { mutableStateOf(initial.playfulNoResult) }
+    var briefingEnabled by remember { mutableStateOf(initial.briefingEnabled) }
+    val scope = rememberCoroutineScope()
+    val onBriefingEnabledChange: (Boolean) -> Unit = { enabled ->
+        briefingEnabled = enabled
+        settingsStore.setBriefingEnabled(enabled)
+        if (!enabled) {
+            // A real power switch: free the resident model and every cache now, not at some
+            // future shade pull that will never run.
+            scope.launch(Dispatchers.Default) { BriefingEngine.onDisabled() }
+        }
+    }
     var fontSize by remember { mutableFloatStateOf(initial.chineseFontSizeSp.toFloat()) }
 
     MaterialTheme(
@@ -322,7 +335,7 @@ private fun MandopopSettingsApp(
                     onOpenSettings = openAccessibilitySettings,
                 )
 
-                SectionLabel("Lookups")
+                SectionLabel("Features")
                 SettingsPanel {
                     ToggleRow(
                         icon = R.drawable.ic_voice,
@@ -344,6 +357,18 @@ private fun MandopopSettingsApp(
                             playfulNoResult = it
                             settingsStore.setPlayfulNoResult(it)
                         },
+                    )
+
+                    BriefingToggle(
+                        enabled = briefingEnabled,
+                        onEnabledChange = onBriefingEnabledChange,
+                        listenerEnabled = notificationListenerEnabled,
+                        listenerConnected = notificationListenerConnected,
+                        calendarGranted = calendarGranted,
+                        usageAccessGranted = usageAccessGranted,
+                        onOpenNotificationAccess = openNotificationAccessSettings,
+                        onRequestCalendar = requestCalendarPermission,
+                        onOpenUsageAccess = openUsageAccessSettings,
                     )
                 }
 
@@ -385,16 +410,6 @@ private fun MandopopSettingsApp(
                     requestNotificationPermission = requestNotificationPermission,
                 )
 
-                SectionLabel("Daily briefing")
-                BriefingPanel(
-                    listenerEnabled = notificationListenerEnabled,
-                    listenerConnected = notificationListenerConnected,
-                    calendarGranted = calendarGranted,
-                    usageAccessGranted = usageAccessGranted,
-                    onOpenNotificationAccess = openNotificationAccessSettings,
-                    onRequestCalendar = requestCalendarPermission,
-                    onOpenUsageAccess = openUsageAccessSettings,
-                )
 
                 AttributionFooter()
             }

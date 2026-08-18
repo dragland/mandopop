@@ -114,8 +114,9 @@ and regenerated when the notification shade is pulled down.
   sentence), loading whatever `.gguf` sits in the app's `models/` dir. Models are pushed
   once at dev time — the Daily briefing panel prints the exact `adb push` target when
   none is installed.
-- The settings panel shows one quiet Ready line when everything is granted, and setup
-  rows only for what is missing. Briefing failures log to logcat (`MandopopBriefing`).
+- Daily briefing is a toggle in the Features section; setup rows appear under it only
+  while something it needs is missing. Turning it off frees the resident model and stops
+  all shade-pull and screen-capture work. Failures log to logcat (`MandopopBriefing`).
 
 Lookups run whenever the accessibility service is on. There is deliberately no
 in-app switch for them — the service is the one control, and a second one would
@@ -126,6 +127,8 @@ Settings defaults:
 - `Pronunciation`: on. Shows the pronunciation button in result cards.
 - `Playful misses`: on. Unknown selections show a random Mandarin miss card;
   turning this off makes unknown selections dismiss silently.
+- `Daily briefing`: on. The shade sentence, screen score and stats line; off frees the
+  on-device model entirely.
 - `Hanzi size`: 24sp by default.
 
 ## Manual Smoke Test

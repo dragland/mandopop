@@ -53,7 +53,9 @@ class TextSelectionService : AccessibilityService() {
                 // The shade opening is a SystemUI window event — the moment the briefing is
                 // actually looked at, so the moment it is computed. Throttling and the input
                 // cache live in the engine; volume dialogs and the keyguard cost a no-op.
-                BriefingEngine.shadePulled(applicationContext, serviceScope)
+                if (settingsStore.snapshot().briefingEnabled) {
+                    BriefingEngine.shadePulled(applicationContext, serviceScope)
+                }
             } else {
                 scheduleScreenCapture(packageName)
             }
@@ -161,6 +163,8 @@ class TextSelectionService : AccessibilityService() {
      * few seconds at most.
      */
     private fun scheduleScreenCapture(packageName: String?) {
+        // The rolling snapshot only exists to feed the briefing — off means off.
+        if (!settingsStore.snapshot().briefingEnabled) return
         if (!isCapturablePackage(packageName)) return
         captureJob?.cancel()
         captureJob = serviceScope.launch {
@@ -179,6 +183,7 @@ class TextSelectionService : AccessibilityService() {
     private fun maybeCaptureScreen(event: AccessibilityEvent) {
         val now = System.currentTimeMillis()
         if (!ScreenTextMonitor.shouldCapture(now)) return
+        if (!settingsStore.snapshot().briefingEnabled) return
         val packageName = event.packageName?.toString()
         if (!isCapturablePackage(packageName)) return
         if (!ScreenTextMonitor.tryClaim(now)) return

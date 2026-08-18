@@ -6,6 +6,7 @@ import com.mandopop.data.MandopopDatabase
 import com.mandopop.dictionary.DictionaryRepository
 import com.mandopop.notification.DueNotifier
 import com.mandopop.notification.StatsTail
+import com.mandopop.settings.SettingsStore
 import com.mandopop.traverse.Segmenter
 import com.mandopop.traverse.TraverseSync
 import kotlinx.coroutines.CancellationException
@@ -132,8 +133,23 @@ object BriefingEngine {
         current?.let { dismissedGenerationMs = it.generatedAtMs }
     }
 
+    /**
+     * Releases everything the feature holds — the resident model (~1.6GB), caches, signature —
+     * so the toggle is a real power switch, not a display filter. Cheap to call repeatedly.
+     */
+    @Synchronized
+    fun onDisabled() {
+        composer?.close()
+        composer = null
+        composerKey = null
+        stored = null
+        storedScore = null
+        lastSignature = null
+    }
+
     /** Shade-pull entry point, called from the accessibility service on SystemUI window events. */
     fun shadePulled(context: Context, scope: CoroutineScope) {
+        if (!SettingsStore(context).snapshot().briefingEnabled) return
         val now = System.currentTimeMillis()
         if (now - lastShadeMs < SHADE_THROTTLE_MS) return
         lastShadeMs = now
@@ -222,6 +238,7 @@ object BriefingEngine {
         }
 
     private suspend fun refreshLocked(context: Context, force: Boolean, dueWord: String?): Boolean {
+        if (!SettingsStore(context).snapshot().briefingEnabled) return false
         // Generation is the battery cost — SystemUI announces volume presses and every unlock,
         // not just shades, and an active phone's notification set churns enough that the input
         // signature alone regenerated dozens of times a day (audited at ~5-8% of the battery).
