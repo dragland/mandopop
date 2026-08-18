@@ -29,12 +29,22 @@ object BriefingPrompt {
         }
 
     /**
-     * The sentence out of whatever the model actually returned: first non-empty line, label and
-     * quote wrappers stripped. Extraction stays dumb on purpose — anything it gets wrong is the
-     * verifier's to refuse, not this function's to repair.
+     * The sentence out of whatever the model actually returned: reasoning block dropped, first
+     * non-empty line, label and quote wrappers stripped. Extraction stays dumb on purpose —
+     * anything it gets wrong is the verifier's to refuse, not this function's to repair.
      */
     fun extractSentence(raw: String): String {
-        val line = raw.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return ""
+        // Reasoning-tuned models (Qwen) may open with <think>…</think>; the sentence follows
+        // the close. An unclosed block means the token budget ran out mid-reasoning — anything
+        // before the tag is all there is, and usually nothing.
+        var text = raw
+        val thinkEnd = text.lastIndexOf("</think>")
+        text = when {
+            thinkEnd >= 0 -> text.substring(thinkEnd + "</think>".length)
+            text.contains("<think>") -> text.substringBefore("<think>")
+            else -> text
+        }
+        val line = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return ""
         return line
             .removePrefix("Sentence:").removePrefix("sentence:").removePrefix("句子：")
             .trim()

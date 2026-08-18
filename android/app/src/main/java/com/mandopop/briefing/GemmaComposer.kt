@@ -30,19 +30,7 @@ import java.io.File
  * process is long-lived, and reloading 3 GB per shade-pull would make every briefing tens of
  * seconds late. If resident memory proves painful on-device, an idle-unload timer is the knob.
  */
-class GemmaComposer(private val appContext: Context) {
-
-    sealed interface Status {
-        /** No model file on the device; carries the exact path to push to. */
-        data class MissingModel(val expectedPath: String) : Status
-
-        /** File present; the engine loads on the first generation (~10 s). */
-        data object NotLoaded : Status
-
-        data class Ready(val backend: String, val model: String) : Status
-
-        data class Failed(val message: String) : Status
-    }
+class GemmaComposer(private val appContext: Context) : SentenceComposer {
 
     private val mutex = Mutex()
     private var engine: Engine? = null
@@ -50,17 +38,18 @@ class GemmaComposer(private val appContext: Context) {
     private var loadedModel: String? = null
     private var lastError: String? = null
 
-    fun expectedModelPath(): String = File(modelDir(), "<model>.litertlm").absolutePath
-
-    fun status(): Status {
-        engine?.let { return Status.Ready(loadedBackend ?: "?", loadedModel ?: "?") }
-        lastError?.let { return Status.Failed(it) }
-        if (modelFile() == null) return Status.MissingModel(expectedModelPath())
-        return Status.NotLoaded
+    override fun status(): ComposerStatus {
+        engine?.let { return ComposerStatus.Ready(loadedBackend ?: "?", loadedModel ?: "?") }
+        lastError?.let { return ComposerStatus.Failed(it) }
+        if (modelFile() == null) {
+            return ComposerStatus.MissingModel(
+                File(modelDir(), "<model>.litertlm").absolutePath,
+            )
+        }
+        return ComposerStatus.NotLoaded
     }
 
-    /** One raw completion. Callers extract, verify, and decide what it was worth. */
-    suspend fun generate(prompt: String): String = withContext(Dispatchers.Default) {
+    override suspend fun generate(prompt: String): String = withContext(Dispatchers.Default) {
         val engine = mutex.withLock { ensureEngine() }
         val config = ConversationConfig(
             samplerConfig = SamplerConfig(topK = 16, topP = 0.9, temperature = 0.2),
@@ -69,6 +58,13 @@ class GemmaComposer(private val appContext: Context) {
         engine.createConversation(config).use { conversation ->
             textOf(conversation.sendMessage(prompt))
         }
+    }
+
+    override fun close() {
+        engine?.close()
+        engine = null
+        loadedBackend = null
+        loadedModel = null
     }
 
     private fun ensureEngine(): Engine {

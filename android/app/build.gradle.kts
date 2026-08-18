@@ -10,6 +10,9 @@ plugins {
 android {
     namespace = "com.mandopop"
     compileSdk = 35
+    // llama.cpp bridge (briefing composer for .gguf models). arm64 only — the one physical
+    // device this app targets — which keeps native build time and APK size in check.
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.mandopop"
@@ -34,6 +37,17 @@ android {
             "TRAVERSE_PROJECT_ID",
             "\"${findProperty("traverse.projectId") ?: "alley-d0944"}\"",
         )
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildFeatures {

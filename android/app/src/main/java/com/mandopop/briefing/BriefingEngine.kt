@@ -39,7 +39,7 @@ object BriefingEngine {
 
     private const val MODEL_ROUNDS = 2
 
-    enum class Source { GEMMA, TEMPLATE }
+    enum class Source { MODEL, TEMPLATE }
 
     data class Briefing(
         val sentence: String,
@@ -95,14 +95,30 @@ object BriefingEngine {
      *  dictionary on every shade-pull was measurable, avoidable I/O. Guarded by [mutex]. */
     private var dictionary: DictionaryRepository? = null
 
-    @Volatile
-    private var composer: GemmaComposer? = null
+    private var composer: SentenceComposer? = null
+    private var composerKey: String? = null
 
-    /** One composer per process; the engine inside it holds the loaded model. */
-    fun composerFor(context: Context): GemmaComposer =
-        composer ?: synchronized(this) {
-            composer ?: GemmaComposer(context.applicationContext).also { composer = it }
+    /**
+     * The composer for whatever model actually sits on the device: `.gguf` → llama.cpp,
+     * else `.litertlm` → LiteRT-LM (gguf wins when both are present — the smaller/faster
+     * candidate is the one under audition). Re-scanned each call so swapping models is an adb
+     * push plus one regeneration; on a switch the previous runtime is closed first, because
+     * two resident models is how a 16GB phone stops being one.
+     */
+    @Synchronized
+    fun composerFor(context: Context): SentenceComposer {
+        val appContext = context.applicationContext
+        val dir = java.io.File(appContext.getExternalFilesDir(null), "models")
+        val gguf = dir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") }
+            ?.minByOrNull { it.name }
+        val key = gguf?.let { "gguf:${it.name}" } ?: "litert"
+        if (key != composerKey) {
+            composer?.close()
+            composer = if (gguf != null) LlamaComposer(appContext) else GemmaComposer(appContext)
+            composerKey = key
         }
+        return composer!!
+    }
 
     @Volatile
     private var lastShadeMs = 0L
@@ -229,29 +245,22 @@ object BriefingEngine {
             return true
         }
 
-        val allowed: (String) -> Boolean = { it in known || it == plan.frontier?.hanzi }
-        suspend fun verdictOf(sentence: String): BriefingVerifier.Verdict {
-            val dictWords = dictionary.knownSimplified(Segmenter.candidates(sentence))
-            return BriefingVerifier.verify(
-                sentence,
-                isWord = { it in dictWords || allowed(it) },
-                isAllowed = allowed,
-            )
-        }
+        suspend fun verdictOf(sentence: String) =
+            verdict(sentence, known, plan.frontier?.hanzi, dictionary)
 
         var result: Briefing? = null
 
-        val gemma = composerFor(context)
-        when (val modelStatus = gemma.status()) {
-            is GemmaComposer.Status.MissingModel ->
+        val model = composerFor(context)
+        when (val modelStatus = model.status()) {
+            is ComposerStatus.MissingModel ->
                 rejections += "model not installed — adb push to ${modelStatus.expectedPath}"
-            is GemmaComposer.Status.Failed ->
+            is ComposerStatus.Failed ->
                 rejections += "model engine failed: ${modelStatus.message}"
             else -> {
                 var avoid = emptyList<String>()
                 for (round in 0 until MODEL_ROUNDS) {
                     val raw = try {
-                        gemma.generate(BriefingPrompt.build(plan.gist, plan.words, avoid))
+                        model.generate(BriefingPrompt.build(plan.gist, plan.words, avoid))
                     } catch (cancellation: CancellationException) {
                         throw cancellation
                     } catch (error: Exception) {
@@ -262,11 +271,11 @@ object BriefingEngine {
                     val sentence = BriefingPrompt.extractSentence(raw)
                     when (val verdict = verdictOf(sentence)) {
                         is BriefingVerifier.Verdict.Pass -> {
-                            result = Briefing(sentence, plan.frontier, Source.GEMMA, inputs.nowMs)
+                            result = Briefing(sentence, plan.frontier, Source.MODEL, inputs.nowMs)
                             break
                         }
                         is BriefingVerifier.Verdict.Fail -> {
-                            rejections += "gemma: ${verdict.reason}"
+                            rejections += "model: ${verdict.reason}"
                             avoid = (avoid + verdict.unknownWords).distinct().take(6)
                         }
                     }
@@ -297,7 +306,7 @@ object BriefingEngine {
                 modelOutputs = modelOutputs,
                 rejections = rejections,
                 outcome = when (result?.source) {
-                    Source.GEMMA -> "Gemma composed it"
+                    Source.MODEL -> "model composed it"
                     Source.TEMPLATE -> "template fallback"
                     null -> "nothing verified — no briefing shown"
                 },
@@ -305,6 +314,88 @@ object BriefingEngine {
         )
         return true
     }
+
+    private suspend fun verdict(
+        sentence: String,
+        known: Set<String>,
+        frontierHanzi: String?,
+        dictionary: DictionaryRepository,
+    ): BriefingVerifier.Verdict {
+        val allowed: (String) -> Boolean = { it in known || it == frontierHanzi }
+        val dictWords = dictionary.knownSimplified(Segmenter.candidates(sentence))
+        return BriefingVerifier.verify(
+            sentence,
+            isWord = { it in dictWords || allowed(it) },
+            isAllowed = allowed,
+        )
+    }
+
+    data class BenchResult(val passed: Int, val total: Int, val avgMs: Long, val lines: List<String>)
+
+    /**
+     * The quantified audition (spec.md §6): the segmenter + known-words check *is* an automated
+     * evaluator, so run the composer over fixture prompts drawn from the user's own vocabulary
+     * and score pass rate and latency instead of eyeballing single generations. Deterministic
+     * sample (seeded shuffle) so two models bench on identical fixtures.
+     */
+    suspend fun bench(context: Context, rounds: Int = 8): BenchResult =
+        withContext(Dispatchers.Default) {
+            mutex.withLock { benchLocked(context, rounds) }
+        }
+
+    private suspend fun benchLocked(context: Context, rounds: Int): BenchResult {
+        val database = MandopopDatabase.get(context)
+        val known = database.frontierDao().knownHanzi().toHashSet()
+        if (known.isEmpty()) return BenchResult(0, 0, 0, listOf("no known words — sync first"))
+        val samples = database.frontierDao().knownGlosses(200)
+            .filter { it.hanzi.length in 2..4 }
+            .shuffled(kotlin.random.Random(BENCH_SEED))
+            .take(rounds)
+        if (samples.isEmpty()) return BenchResult(0, 0, 0, listOf("no glossed words to bench with"))
+
+        val model = composerFor(context)
+        when (val status = model.status()) {
+            is ComposerStatus.MissingModel ->
+                return BenchResult(0, 0, 0, listOf("model not installed: ${status.expectedPath}"))
+            is ComposerStatus.Failed ->
+                return BenchResult(0, 0, 0, listOf("model failed: ${status.message}"))
+            else -> Unit
+        }
+        val dictionary = dictionary ?: DictionaryRepository(context.applicationContext)
+            .also { dictionary = it }
+
+        val lines = mutableListOf<String>()
+        var passed = 0
+        var totalMs = 0L
+        for (sample in samples) {
+            val gist = "a reminder about \"${sample.english.take(40)}\""
+            val words = listOfNotNull("今天".takeIf { it in known }, sample.hanzi)
+            val startedAt = System.currentTimeMillis()
+            val raw = try {
+                model.generate(BriefingPrompt.build(gist, words))
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                lines += "✗ ${sample.hanzi}: ${error.message ?: "generation error"}"
+                continue
+            }
+            val elapsed = System.currentTimeMillis() - startedAt
+            totalMs += elapsed
+            val sentence = BriefingPrompt.extractSentence(raw)
+            when (val result = verdict(sentence, known, null, dictionary)) {
+                is BriefingVerifier.Verdict.Pass -> {
+                    passed++
+                    lines += "✓ ${elapsed}ms $sentence"
+                }
+                is BriefingVerifier.Verdict.Fail ->
+                    lines += "✗ ${elapsed}ms ${result.reason} ← ${sentence.take(30)}"
+            }
+        }
+        val timed = lines.count { it.startsWith("✓") || it.contains("ms ") }
+        return BenchResult(passed, samples.size, if (timed > 0) totalMs / timed else 0, lines)
+    }
+
+    private const val BENCH_SEED = 42
 
     private fun sameLocalDay(thenMs: Long): Boolean {
         val zone = ZoneId.systemDefault()

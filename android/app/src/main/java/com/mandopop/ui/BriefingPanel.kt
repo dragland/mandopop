@@ -31,7 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mandopop.briefing.BriefingEngine
-import com.mandopop.briefing.GemmaComposer
+import com.mandopop.briefing.ComposerStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -54,10 +54,11 @@ internal fun BriefingPanel(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var modelStatus by remember { mutableStateOf<GemmaComposer.Status?>(null) }
+    var modelStatus by remember { mutableStateOf<ComposerStatus?>(null) }
     var busy by remember { mutableStateOf(false) }
     var briefing by remember { mutableStateOf(BriefingEngine.current) }
     var attempt by remember { mutableStateOf(BriefingEngine.lastAttempt) }
+    var bench by remember { mutableStateOf<BriefingEngine.BenchResult?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -104,12 +105,12 @@ internal fun BriefingPanel(
         )
         StatusRow(
             label = "On-device model",
-            ok = modelStatus is GemmaComposer.Status.Ready,
+            ok = modelStatus is ComposerStatus.Ready,
             okText = when (val status = modelStatus) {
-                is GemmaComposer.Status.Ready -> "${status.model} (${status.backend})"
-                is GemmaComposer.Status.NotLoaded -> "On disk — loads on first generation (~10s)"
-                is GemmaComposer.Status.MissingModel -> "Not installed"
-                is GemmaComposer.Status.Failed -> "Engine failed"
+                is ComposerStatus.Ready -> "${status.model} (${status.backend})"
+                is ComposerStatus.NotLoaded -> "On disk — loads on first generation (~10s)"
+                is ComposerStatus.MissingModel -> "Not installed"
+                is ComposerStatus.Failed -> "Engine failed"
                 null -> "Checking…"
             },
             action = null,
@@ -117,7 +118,7 @@ internal fun BriefingPanel(
         )
         // The model is provisioned by hand once — gigabytes have no business in the APK, and the
         // exact push target is the one thing worth printing.
-        (modelStatus as? GemmaComposer.Status.MissingModel)?.let {
+        (modelStatus as? ComposerStatus.MissingModel)?.let {
             Text(
                 text = "adb push ${it.expectedPath}",
                 color = MutedText,
@@ -126,7 +127,7 @@ internal fun BriefingPanel(
                 fontFamily = FontFamily.Monospace,
             )
         }
-        (modelStatus as? GemmaComposer.Status.Failed)?.let {
+        (modelStatus as? ComposerStatus.Failed)?.let {
             Text(text = it.message, color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
 
@@ -159,13 +160,56 @@ internal fun BriefingPanel(
             ) {
                 Text("Generate now", fontWeight = FontWeight.SemiBold)
             }
+            Spacer(Modifier.width(10.dp))
+            // The quantified audition: N fixture briefings from the user's own vocabulary,
+            // scored by the verifier. Two models bench on identical fixtures (seeded sample).
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        error = null
+                        try {
+                            bench = BriefingEngine.bench(context.applicationContext)
+                            modelStatus = BriefingEngine.composerFor(context).status()
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (failure: Exception) {
+                            error = failure.message ?: "Bench failed"
+                        }
+                        busy = false
+                    }
+                },
+                enabled = !busy,
+            ) {
+                Text("Bench ×8", color = Cyan, fontSize = 13.sp)
+            }
             if (busy) {
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(6.dp))
                 CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
                     color = NeonGreen,
                     strokeWidth = 2.dp,
                 )
+            }
+        }
+
+        bench?.let { b ->
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "bench: ${b.passed}/${b.total} verified · avg ${b.avgMs}ms",
+                    color = if (b.total > 0 && b.passed >= b.total / 2) NeonGreen else ErrorRed,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                b.lines.forEach { line ->
+                    Text(
+                        text = line,
+                        color = if (line.startsWith("✓")) MutedText else ErrorRed,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
             }
         }
 
@@ -187,7 +231,7 @@ internal fun BriefingPanel(
                 }
                 Text(
                     text = when (it.source) {
-                        BriefingEngine.Source.GEMMA -> "composed by Gemma"
+                        BriefingEngine.Source.MODEL -> "composed by the on-device model"
                         BriefingEngine.Source.TEMPLATE -> "template fallback"
                     },
                     color = MutedText,
@@ -204,7 +248,7 @@ internal fun BriefingPanel(
                 a.gist?.let { DebugLine("gist", it) }
                 a.promptWords?.let { DebugLine("words", it.joinToString(" ")) }
                 a.modelOutputs.forEachIndexed { i, raw ->
-                    DebugLine("gemma #${i + 1}", raw)
+                    DebugLine("model #${i + 1}", raw)
                 }
                 a.rejections.forEach { DebugLine("rejected", it, ErrorRed) }
                 DebugLine("outcome", a.outcome)
