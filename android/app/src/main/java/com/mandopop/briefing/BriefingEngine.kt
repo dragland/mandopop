@@ -39,6 +39,9 @@ object BriefingEngine {
 
     private const val MODEL_ROUNDS = 2
 
+    /** Floor between generations, independent of input churn — the battery knob. */
+    private const val REGEN_MIN_INTERVAL_MS = 5 * 60 * 1000L
+
     enum class Source { MODEL, TEMPLATE }
 
     /**
@@ -85,9 +88,6 @@ object BriefingEngine {
     private val mutex = Mutex()
     private var lastSignature: Int? = null
 
-    /** Held for the process lifetime, like the service's own instance — reopening the SQLite
-     *  dictionary on every shade-pull was measurable, avoidable I/O. Guarded by [mutex]. */
-    private var dictionary: DictionaryRepository? = null
 
     private var composer: SentenceComposer? = null
     private var composerKey: String? = null
@@ -107,7 +107,12 @@ object BriefingEngine {
         val dir = java.io.File(appContext.getExternalFilesDir(null), "models").apply { mkdirs() }
         val gguf = dir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") }
             ?.minByOrNull { it.name }
-        val key = gguf?.let { "gguf:${it.name}" } ?: "litert"
+        // Identity includes mtime+size: a same-name re-push must rebuild the composer (a fresh
+        // load, and a fresh chance after a transient init failure) — keying on the name alone
+        // silently kept stale weights resident. Note llama.cpp mmaps the file, so overwriting
+        // a *currently loaded* model in place is still undefined until this rescan runs; push
+        // under a new name when in doubt.
+        val key = gguf?.let { "gguf:${it.name}:${it.lastModified()}:${it.length()}" } ?: "litert"
         if (key != composerKey) {
             composer?.close()
             composer = if (gguf != null) LlamaComposer(appContext) else GemmaComposer(appContext)
@@ -163,10 +168,23 @@ object BriefingEngine {
                 // outside the signature cache.
                 val scoreChanged = runCatching { refreshScreenScore(appContext) }
                     .getOrDefault(false)
-                val briefingChanged = refresh(appContext)
+                // One sync, one example resolution, threaded everywhere it's needed — the
+                // audited version constructed two TraverseSyncs and ran the 10-candidate cloze
+                // walk twice per pull for identical answers.
+                val sync = TraverseSync(appContext)
+                val signedIn = sync.isSignedIn()
+                val example = if (signedIn) runCatching { sync.localExample() }.getOrNull() else null
+                val briefingChanged = refresh(appContext, dueWord = example?.hanzi)
                 // Stats move with the clock even when the briefing inputs don't.
                 runCatching { StatsTail.refresh(appContext) }
-                if (scoreChanged || briefingChanged) repostFromLocal(appContext)
+                if ((scoreChanged || briefingChanged) && signedIn) {
+                    DueNotifier.showLocal(
+                        appContext,
+                        sync.localDueCount(),
+                        sync.localLiveCount(),
+                        example,
+                    )
+                }
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -188,8 +206,7 @@ object BriefingEngine {
                 val database = MandopopDatabase.get(context)
                 val known = database.frontierDao().knownHanzi().toHashSet()
                 if (known.isEmpty()) return@withLock false
-                val dictionary = dictionary ?: DictionaryRepository(context.applicationContext)
-                    .also { dictionary = it }
+                val dictionary = DictionaryRepository.shared(context)
                 val snapWords = dictionary.knownSimplified(Segmenter.candidates(snap.text))
                 val score = ScreenScoring.readable(
                     snap.text,
@@ -215,10 +232,30 @@ object BriefingEngine {
      */
     suspend fun refresh(context: Context, force: Boolean = false): Boolean =
         withContext(Dispatchers.Default) {
-            mutex.withLock { refreshLocked(context, force) }
+            // Callers without a resolved example in hand (the settings panel) pay one walk here.
+            val dueWord = runCatching { TraverseSync(context).localExample()?.hanzi }.getOrNull()
+            mutex.withLock { refreshLocked(context, force, dueWord) }
         }
 
-    private suspend fun refreshLocked(context: Context, force: Boolean): Boolean {
+    /** [dueWord]: the word the notification's example resolves to, threaded in by callers that
+     *  already resolved it so the cloze walk runs once per pull, not twice. */
+    suspend fun refresh(context: Context, force: Boolean = false, dueWord: String?): Boolean =
+        withContext(Dispatchers.Default) {
+            mutex.withLock { refreshLocked(context, force, dueWord) }
+        }
+
+    private suspend fun refreshLocked(context: Context, force: Boolean, dueWord: String?): Boolean {
+        // Generation is the battery cost — SystemUI announces volume presses and every unlock,
+        // not just shades, and an active phone's notification set churns enough that the input
+        // signature alone regenerated dozens of times a day (audited at ~5-8% of the battery).
+        // Today's briefing staying put for a few minutes is fine; force (the panel) bypasses.
+        stored?.let {
+            if (!force && sameLocalDay(it.generatedAtMs) &&
+                System.currentTimeMillis() - it.generatedAtMs < REGEN_MIN_INTERVAL_MS
+            ) {
+                return false
+            }
+        }
         val inputs = BriefingInputs(
             nowMs = System.currentTimeMillis(),
             events = CalendarSource.eventsRemainingToday(context),
@@ -250,28 +287,24 @@ object BriefingEngine {
             return true
         }
         // A word can sit on two cards — one live (so it is known) and one still-suspended (so
-        // it matches the frontier query). The frontier's whole meaning is "un-learned"; without
-        // this filter the introduction gloss could hand over a learned word's answer.
+        // it matches the frontier query). The frontier's whole meaning is "un-learned"; the
+        // filter keeps the prompt's introduction slot honest (and the bench's gloss line safe).
         val frontier = database.frontierDao().frontierWords().filterNot { it.hanzi in known }
 
         val modelOutputs = mutableListOf<String>()
         val rejections = mutableListOf<String>()
-        val dictionary = dictionary ?: DictionaryRepository(context.applicationContext)
-            .also { dictionary = it }
+        val dictionary = DictionaryRepository.shared(context)
 
         val basePlan = BriefingPicker.plan(inputs, known, frontier, ZoneId.systemDefault()) { word ->
             dictionary.lookup(word, 1).firstOrNull()?.simplified
         }
         // The notification shows ONE sentence — the briefing and the recall prompt are the
         // same line, not a stack. Feeding the due word into the prompt is what makes that
-        // possible: the model weaves today's context around the word being recalled. It must
-        // be the SAME word the notification's example resolves to — the display only lets the
-        // briefing carry the line when it contains that word, and feeding the raw top-lapsed
-        // word while the example preferred a cloze-able one meant the two never matched and
-        // the generated sentence could never surface.
-        val dueWord = TraverseSync(context).localExample()?.hanzi?.takeIf { it in known }
-        val plan = if (basePlan != null && dueWord != null) {
-            basePlan.copy(words = (basePlan.words + dueWord).distinct().take(7))
+        // possible, and it must be the SAME word the notification's example resolves to — the
+        // display only lets the briefing carry the line when it contains that word.
+        val knownDueWord = dueWord?.takeIf { it in known }
+        val plan = if (basePlan != null && knownDueWord != null) {
+            basePlan.copy(words = (basePlan.words + knownDueWord).distinct().take(7))
         } else {
             basePlan
         }
@@ -287,12 +320,17 @@ object BriefingEngine {
         var result: Briefing? = null
 
         val model = composerFor(context)
-        when (val modelStatus = model.status()) {
-            is ComposerStatus.MissingModel ->
+        val modelStatus = model.status()
+        when {
+            modelStatus is ComposerStatus.MissingModel ->
                 rejections += "model not installed — adb push to ${modelStatus.expectedPath}"
-            is ComposerStatus.Failed ->
-                rejections += "model engine failed: ${modelStatus.message}"
             else -> {
+                if (modelStatus is ComposerStatus.Failed) {
+                    // Noted but not terminal: generate() re-attempts the load, so a transient
+                    // init failure (driver refusal at boot, memory pressure mid-load) cannot
+                    // latch the model off for the process lifetime behind a silent template.
+                    rejections += "previous engine failure, retrying: ${modelStatus.message}"
+                }
                 var avoid = emptyList<String>()
                 for (round in 0 until MODEL_ROUNDS) {
                     val raw = try {
@@ -390,15 +428,11 @@ object BriefingEngine {
         if (samples.isEmpty()) return BenchResult(0, 0, 0, listOf("no glossed words to bench with"))
 
         val model = composerFor(context)
-        when (val status = model.status()) {
-            is ComposerStatus.MissingModel ->
-                return BenchResult(0, 0, 0, listOf("model not installed: ${status.expectedPath}"))
-            is ComposerStatus.Failed ->
-                return BenchResult(0, 0, 0, listOf("model failed: ${status.message}"))
-            else -> Unit
+        val status = model.status()
+        if (status is ComposerStatus.MissingModel) {
+            return BenchResult(0, 0, 0, listOf("model not installed: ${status.expectedPath}"))
         }
-        val dictionary = dictionary ?: DictionaryRepository(context.applicationContext)
-            .also { dictionary = it }
+        val dictionary = DictionaryRepository.shared(context)
 
         val lines = mutableListOf<String>()
         var passed = 0
@@ -453,9 +487,4 @@ object BriefingEngine {
         }
     }
 
-    private suspend fun repostFromLocal(context: Context) {
-        val sync = TraverseSync(context)
-        if (!sync.isSignedIn()) return
-        DueNotifier.showLocal(context, sync.localDueCount(), sync.localLiveCount(), sync.localExample())
-    }
 }

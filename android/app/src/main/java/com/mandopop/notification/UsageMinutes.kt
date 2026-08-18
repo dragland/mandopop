@@ -26,6 +26,9 @@ object UsageMinutes {
 
     private const val TAG = "MandopopStats"
 
+    /** How far past midnight a study session is allowed to straddle and still be clipped in. */
+    private const val STRADDLE_LOOKBACK_MS = 6 * 60 * 60 * 1000L
+
     /**
      * The study allowlist. Traverse is certain; the other two are the apps' published ids —
      * verify against `adb shell pm list packages` if their minutes ever read as zero while
@@ -64,10 +67,17 @@ object UsageMinutes {
         val startOfDay = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
         val now = System.currentTimeMillis()
         return try {
-            val events = manager.queryEvents(startOfDay, now) ?: return null
+            // The window reaches back past midnight so a session straddling it (resumed 23:50,
+            // paused 00:20) is seen whole and *clipped* to the day, rather than its lone PAUSED
+            // event being dropped for lack of a matching RESUMED.
+            val events = manager.queryEvents(startOfDay - STRADDLE_LOOKBACK_MS, now) ?: return null
             var totalMs = 0L
             val resumedAt = HashMap<String, Long>()
             val event = UsageEvents.Event()
+            fun credit(fromMs: Long, toMs: Long) {
+                val clippedFrom = fromMs.coerceAtLeast(startOfDay)
+                if (toMs > clippedFrom) totalMs += toMs - clippedFrom
+            }
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
                 if (event.packageName !in STUDY_PACKAGES) continue
@@ -77,13 +87,11 @@ object UsageMinutes {
                     UsageEvents.Event.MOVE_TO_FOREGROUND ->
                         resumedAt.putIfAbsent(event.packageName, event.timeStamp)
                     UsageEvents.Event.MOVE_TO_BACKGROUND ->
-                        resumedAt.remove(event.packageName)?.let {
-                            totalMs += (event.timeStamp - it).coerceAtLeast(0)
-                        }
+                        resumedAt.remove(event.packageName)?.let { credit(it, event.timeStamp) }
                 }
             }
             // Anything still foreground counts up to the query moment.
-            for (since in resumedAt.values) totalMs += (now - since).coerceAtLeast(0)
+            for (since in resumedAt.values) credit(since, now)
             (totalMs / 60_000L).toInt()
         } catch (error: Exception) {
             Log.w(TAG, "usage events query failed", error)

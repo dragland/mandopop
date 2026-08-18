@@ -10,8 +10,6 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -32,7 +30,9 @@ import java.io.File
  */
 class GemmaComposer(private val appContext: Context) : SentenceComposer {
 
-    private val mutex = Mutex()
+    /** Plain monitor so [close] (non-suspend, called on model swap) fences an in-flight
+     *  generation — same use-after-free guard as the llama composer. */
+    private val runtimeLock = Any()
     private var engine: Engine? = null
     private var loadedBackend: String? = null
     private var loadedModel: String? = null
@@ -50,21 +50,25 @@ class GemmaComposer(private val appContext: Context) : SentenceComposer {
     }
 
     override suspend fun generate(prompt: String): String = withContext(Dispatchers.Default) {
-        val engine = mutex.withLock { ensureEngine() }
-        val config = ConversationConfig(
-            samplerConfig = SamplerConfig(topK = 16, topP = 0.9, temperature = 0.2),
-            maxOutputToken = MAX_OUTPUT_TOKENS,
-        )
-        engine.createConversation(config).use { conversation ->
-            textOf(conversation.sendMessage(prompt))
+        synchronized(runtimeLock) {
+            val engine = ensureEngine()
+            val config = ConversationConfig(
+                samplerConfig = SamplerConfig(topK = 16, topP = 0.9, temperature = 0.2),
+                maxOutputToken = MAX_OUTPUT_TOKENS,
+            )
+            engine.createConversation(config).use { conversation ->
+                textOf(conversation.sendMessage(prompt))
+            }
         }
     }
 
     override fun close() {
-        engine?.close()
-        engine = null
-        loadedBackend = null
-        loadedModel = null
+        synchronized(runtimeLock) {
+            engine?.close()
+            engine = null
+            loadedBackend = null
+            loadedModel = null
+        }
     }
 
     private fun ensureEngine(): Engine {

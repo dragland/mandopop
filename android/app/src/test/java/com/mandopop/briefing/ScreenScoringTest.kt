@@ -64,7 +64,7 @@ class ScreenScoringTest {
     fun linesNameTheirFlavorInChinese() {
         val readable = ScreenScoring.Score(ScreenScoring.Flavor.READABLE, 82, 40)
         val sayable = ScreenScoring.Score(ScreenScoring.Flavor.SAYABLE, 40, 20)
-        assertEquals("屏幕 ≈82% 看得懂", ScreenScoring.line(readable))
-        assertEquals("屏幕 ≈40% 会说", ScreenScoring.line(sayable))
+        assertEquals("屏幕 ≈82% 认识", ScreenScoring.line(readable))
+        assertEquals("屏幕 ≈40% 说得出", ScreenScoring.line(sayable))
     }
 }

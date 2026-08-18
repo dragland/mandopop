@@ -37,7 +37,7 @@ class TextSelectionService : AccessibilityService() {
 
     override fun onCreate() {
         super.onCreate()
-        dictionaryRepository = DictionaryRepository(applicationContext)
+        dictionaryRepository = DictionaryRepository.shared(applicationContext)
         settingsStore = SettingsStore(applicationContext)
         ttsManager = ChineseTtsManager(applicationContext)
         overlayManager = OverlayManager(this, ttsManager)
@@ -112,7 +112,8 @@ class TextSelectionService : AccessibilityService() {
         serviceScope.cancel()
         overlayManager.dismiss()
         ttsManager.shutdown()
-        dictionaryRepository.close()
+        // The dictionary is the process-shared handle now — closing it here would tear it out
+        // from under the briefing engine and every TraverseSync in flight.
         super.onDestroy()
     }
 

@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.mandopop.MainActivity
 import com.mandopop.R
 import com.mandopop.briefing.BriefingEngine
+import com.mandopop.traverse.ChineseText
 import com.mandopop.traverse.DueExample
 import com.mandopop.traverse.SyncOutcome
 import com.mandopop.work.NotificationRefreshReceiver
@@ -82,17 +83,22 @@ object DueNotifier {
                         briefing != null && example != null &&
                             briefing.sentence.contains(example.hanzi) -> briefing.sentence
                         example?.sentence != null -> example.sentence
+                        // The bare word outranks a briefing that lacks it: Reveal answers for
+                        // the due word, and a Reveal whose question appears nowhere on screen
+                        // is a broken recall loop. The wordless briefing gets its showing at
+                        // zero due.
+                        example != null -> example.hanzi
                         briefing != null -> briefing.sentence
-                        else -> example?.hanzi ?: "${outcome.liveCount} cards in rotation"
+                        else -> "共 ${outcome.liveCount} 张卡在学"
                     }
                     post(
                         context,
-                        title = "今天 · ${outcome.dueCount} 到期",
+                        title = "今天 · ${outcome.dueCount} 张到期",
                         text = body,
                         needsAttention = false,
                         reveal = example?.hanzi,
                         expandedText = expanded(body),
-                        speak = example?.let { body },
+                        speak = body.takeIf { ChineseText.hasHan(it) },
                     )
                 }
             }
@@ -151,7 +157,7 @@ object DueNotifier {
     fun showAnswer(context: Context, dueCount: Int, hanzi: String, gloss: String) {
         post(
             context,
-            title = "$hanzi — 今天 · $dueCount 到期",
+            title = "$hanzi — 今天 · $dueCount 张到期",
             text = gloss,
             needsAttention = false,
             reveal = null,
@@ -165,12 +171,8 @@ object DueNotifier {
     }
 
     /**
-     * Expanded view: prompt (when due), briefing block, then the score/stats tail — one primary
-     * line plus quiet secondaries, never a dashboard. Absent pieces simply don't print.
-     */
-    /**
      * Expanded view: the one primary sentence, then the score/stats tail — never a second
-     * Chinese line, never a dashboard. Absent pieces simply don't print.
+     * Chinese *sentence*, never a dashboard. Absent pieces simply don't print.
      */
     private fun expanded(body: String?): String? {
         val tail = listOfNotNull(BriefingEngine.screenScoreLine, StatsTail.line)

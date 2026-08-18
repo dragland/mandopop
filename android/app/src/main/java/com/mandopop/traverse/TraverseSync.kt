@@ -74,7 +74,7 @@ class TraverseSync(context: Context) {
     private val auth = TraverseAuth.get(appContext)
     private val firestore = FirestoreRest(auth)
     private val database = MandopopDatabase.get(appContext)
-    private val dictionary = DictionaryRepository(appContext)
+    private val dictionary = DictionaryRepository.shared(appContext)
     private val vocabulary = CardVocabulary(firestore, dictionary, database.cardContentDao())
     private val knownWords = KnownWordIndex(
         dictionary,

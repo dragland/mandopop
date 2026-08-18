@@ -30,7 +30,8 @@ object BriefingPicker {
         val gist: String,
         /** Chinese words the sentence should be built from — all known, plus the frontier word. */
         val words: List<String>,
-        /** At most one not-yet-taught word the sentence may introduce (rendered glossed). */
+        /** At most one not-yet-taught word the sentence may introduce — unglossed:
+         *  noticing without the answer. */
         val frontier: FrontierWord?,
         /** Structured slots for the no-model template fallback. */
         val timeOfDay: String?,
@@ -123,8 +124,8 @@ object BriefingPicker {
             if (hanzi != null && hanzi in known) {
                 if (hanzi !in knownMatches) knownMatches += hanzi
             } else if (frontierMatch == null) {
-                // Introduction slot: exactly one word the course will teach anyway, matched by
-                // the dictionary's pick or by the card's own gloss.
+                // The one un-taught word the sentence may carry (unglossed): a word the course
+                // will teach anyway, matched by the dictionary's pick or the card's own gloss.
                 frontierMatch = frontierByGlossWord[word]
                     ?: hanzi?.let { h -> frontierByGlossWord.values.firstOrNull { it.hanzi == h } }
             }

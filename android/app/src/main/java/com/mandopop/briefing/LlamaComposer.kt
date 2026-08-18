@@ -3,8 +3,6 @@ package com.mandopop.briefing
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -18,7 +16,14 @@ import java.io.File
  */
 class LlamaComposer(private val appContext: Context) : SentenceComposer {
 
-    private val mutex = Mutex()
+    /**
+     * A plain monitor, not a coroutine mutex, because [close] must be able to take it from
+     * non-suspend context: an adb model-swap makes the engine close this composer, and an
+     * unload racing an in-flight generate is a native use-after-free — every native call sits
+     * under this lock. Blocking a Default-dispatcher thread for a generation's duration is what
+     * generation costs regardless.
+     */
+    private val runtimeLock = Any()
 
     @Volatile
     private var loaded = false
@@ -38,19 +43,25 @@ class LlamaComposer(private val appContext: Context) : SentenceComposer {
     }
 
     override suspend fun generate(prompt: String): String = withContext(Dispatchers.Default) {
-        // The whole call sits under the mutex: the native side is a single model+context with
+        // The whole call sits under the lock: the native side is a single model+context with
         // no locking of its own.
-        mutex.withLock {
+        synchronized(runtimeLock) {
             ensureLoaded()
-            nativeGenerate(prompt, MAX_OUTPUT_TOKENS, TEMPERATURE, TOP_K)
+            val bytes = nativeGenerate(prompt, MAX_OUTPUT_TOKENS, TEMPERATURE, TOP_K)
                 ?: throw IllegalStateException("llama generation failed")
+            // Bytes, not a JNI string: the token budget can slice a hanzi mid-sequence, and
+            // Kotlin's decoder degrades that to a replacement char for the verifier to refuse
+            // instead of ART aborting the process on invalid Modified UTF-8.
+            String(bytes, Charsets.UTF_8)
         }
     }
 
     override fun close() {
-        if (loaded) {
-            nativeUnload()
-            loaded = false
+        synchronized(runtimeLock) {
+            if (loaded) {
+                nativeUnload()
+                loaded = false
+            }
         }
     }
 
@@ -107,7 +118,7 @@ class LlamaComposer(private val appContext: Context) : SentenceComposer {
             maxTokens: Int,
             temperature: Float,
             topK: Int,
-        ): String?
+        ): ByteArray?
 
         @JvmStatic
         private external fun nativeUnload()

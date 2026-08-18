@@ -30,10 +30,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import com.mandopop.briefing.BriefingEngine
 import com.mandopop.briefing.ComposerStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The daily-briefing section: whether its inputs are granted, whether the on-device model is
@@ -62,7 +64,11 @@ internal fun BriefingPanel(
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        modelStatus = BriefingEngine.composerFor(context).status()
+        // composerFor touches the filesystem (models-dir scan, possibly closing a runtime on a
+        // model swap) — not main-thread work.
+        modelStatus = withContext(Dispatchers.Default) {
+            BriefingEngine.composerFor(context).status()
+        }
     }
 
     SettingsPanel {
@@ -102,6 +108,14 @@ internal fun BriefingPanel(
             ok = usageAccessGranted,
             action = "Grant",
             onAction = onOpenUsageAccess,
+        )
+        // Same lesson as the toggles: a grant request without a stated payoff reads as an
+        // unexplained ask.
+        Text(
+            text = "Powers the 今天学了 N 分钟 line in the notification",
+            color = MutedText,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
         )
         StatusRow(
             label = "On-device model",

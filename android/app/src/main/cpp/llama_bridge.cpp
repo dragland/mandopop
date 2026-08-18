@@ -87,7 +87,10 @@ static std::string apply_chat_template(const std::string &prompt) {
     return formatted;
 }
 
-extern "C" JNIEXPORT jstring JNICALL
+// Returns raw UTF-8 bytes, decoded on the Kotlin side. NewStringUTF would abort the process on
+// invalid Modified UTF-8 — and hitting the token budget mid-character leaves exactly that, since
+// byte-level BPE happily splits a three-byte hanzi across tokens.
+extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_mandopop_briefing_LlamaComposer_nativeGenerate(
         JNIEnv *env, jclass, jstring jprompt, jint max_tokens, jfloat temperature, jint top_k) {
     if (!g_model || !g_ctx) return nullptr;
@@ -126,12 +129,18 @@ Java_com_mandopop_briefing_LlamaComposer_nativeGenerate(
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     std::string out;
-    char piece[256];
+    std::vector<char> piece(256);
     for (int i = 0; i < max_tokens; i++) {
         llama_token id = llama_sampler_sample(smpl, g_ctx, -1);
         if (llama_vocab_is_eog(vocab, id)) break;
-        int n = llama_token_to_piece(vocab, id, piece, sizeof(piece), 0, false);
-        if (n > 0) out.append(piece, n);
+        int n = llama_token_to_piece(vocab, id, piece.data(), (int32_t) piece.size(), 0, false);
+        if (n < 0) {
+            // Buffer too small: -n is the required size. Rare, but silent truncation would
+            // corrupt the byte stream.
+            piece.resize(-n);
+            n = llama_token_to_piece(vocab, id, piece.data(), (int32_t) piece.size(), 0, false);
+        }
+        if (n > 0) out.append(piece.data(), n);
         llama_batch next = llama_batch_get_one(&id, 1);
         if (llama_decode(g_ctx, next) != 0) {
             LOGE("decode failed mid-generation");
@@ -140,5 +149,10 @@ Java_com_mandopop_briefing_LlamaComposer_nativeGenerate(
     }
     llama_sampler_free(smpl);
 
-    return env->NewStringUTF(out.c_str());
+    jbyteArray bytes = env->NewByteArray((jsize) out.size());
+    if (bytes) {
+        env->SetByteArrayRegion(bytes, 0, (jsize) out.size(),
+                                reinterpret_cast<const jbyte *>(out.data()));
+    }
+    return bytes;
 }

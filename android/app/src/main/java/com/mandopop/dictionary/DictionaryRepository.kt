@@ -80,13 +80,6 @@ class DictionaryRepository(private val context: Context) {
     }
 
     /**
-     * Which of [words] CC-CEDICT actually contains.
-     *
-     * Segmenting the deck's sentences tests thousands of candidate substrings, and a point query
-     * each would mean thousands of round trips for a question that is one indexed scan per chunk.
-     * Membership only — callers that need the entry itself still go through [lookupBySimplified].
-     */
-    /**
      * SUBTLEX mass covered by [words] and the whole corpus's mass — the stats line's
      * "% of everyday running Chinese you can read". Per distinct written form (MAX over
      * homograph entries: frequency is form-keyed, so summing per entry would double-count
@@ -128,6 +121,13 @@ class DictionaryRepository(private val context: Context) {
             if (cursor.moveToFirst()) cursor.getString(0).toDoubleOrNull() ?: 0.0 else 0.0
         }
 
+    /**
+     * Which of [words] CC-CEDICT actually contains.
+     *
+     * Segmenting the deck's sentences tests thousands of candidate substrings, and a point query
+     * each would mean thousands of round trips for a question that is one indexed scan per chunk.
+     * Membership only — callers that need the entry itself still go through [lookupBySimplified].
+     */
     suspend fun knownSimplified(words: Collection<String>): Set<String> {
         if (words.isEmpty()) return emptySet()
         return withContext(Dispatchers.IO) {
@@ -342,5 +342,21 @@ class DictionaryRepository(private val context: Context) {
         private const val EXPECTED_USER_VERSION = 3
         /** SQLite's default parameter ceiling is 999; this keeps well clear of it. */
         private const val MEMBERSHIP_CHUNK = 400
+
+        @Volatile
+        private var sharedInstance: DictionaryRepository? = null
+
+        /**
+         * The process-lifetime handle. Per-caller instances were an audited leak: every
+         * `TraverseSync` construction (each worker run, each notification broadcast, each
+         * shade-pull) opened its own SQLite connection and nothing ever closed it — hundreds of
+         * live handles a day. One connection per process, never closed; the constructor stays
+         * public only for JVM tests.
+         */
+        fun shared(context: Context): DictionaryRepository =
+            sharedInstance ?: synchronized(this) {
+                sharedInstance
+                    ?: DictionaryRepository(context.applicationContext).also { sharedInstance = it }
+            }
     }
 }

@@ -18,9 +18,6 @@ object StatsTail {
     @Volatile
     private var stored: Pair<String, Long>? = null
 
-    /** Process-lifetime handle, same pattern as the engine's — reopening per refresh is waste. */
-    @Volatile
-    private var dictionary: DictionaryRepository? = null
 
     val line: String?
         get() = stored?.takeIf { sameLocalDay(it.second) }?.first
@@ -40,21 +37,25 @@ object StatsTail {
             stored = null
             return
         }
-        val dictionary = dictionary
-            ?: DictionaryRepository(context.applicationContext).also { dictionary = it }
+        val dictionary = DictionaryRepository.shared(context)
         val (knownMass, totalMass) = dictionary.frequencyCoverage(known)
         if (totalMass <= 0) {
             stored = null
             return
         }
         val line = buildString {
-            append("日常中文 ≈%.1f%% 看得懂".format(knownMass / totalMass * 100.0))
+            // One decimal on purpose: coverage moves ~0.1% per learned word, and integer
+            // rounding would hide a week of progress. 认识, not 看得懂 — recognition is what
+            // token coverage measures.
+            append("日常中文 ≈%.1f%% 认识".format(knownMass / totalMass * 100.0))
             UsageMinutes.today(context)?.takeIf { it > 0 }?.let {
                 append(" · 今天学了 $it 分钟")
             }
         }
         stored = line to System.currentTimeMillis()
     }
+
+    private const val FRESH_MS = 60_000L
 
     private fun sameLocalDay(thenMs: Long): Boolean {
         val zone = ZoneId.systemDefault()

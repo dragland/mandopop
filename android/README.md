@@ -84,7 +84,7 @@ DataStore; the password itself is never persisted. Sign Out clears the token, th
 - The notification shows the bare hanzi of a due card, with a `Reveal` action for the
   reading and meaning. It is silent and cannot be swiped away while cards are due. Once
   the queue is empty it disappears — unless a daily briefing is available, in which case
-  a dismissable "All caught up" line with the briefing sentence takes its place.
+  a dismissable 复习完了 ✓ line with the briefing sentence takes its place.
 - Local state lives in `mandopop.db` and is a cache of remote state, so a schema change
   with no written migration drops it and the next sync refills it. `card_content` is the
   exception and now has a real migration: refilling it costs ~940 reads on Traverse's
@@ -107,13 +107,16 @@ and regenerated when the notification shade is pulled down.
   currently in the shade (notification access, granted in system settings via the
   Daily briefing panel), and a rolling snapshot of the foreground app's text from the
   accessibility tree. All three are read at generation time and stored nowhere.
-- Composed on-device by Gemma 3n running in-process (LiteRT-LM) with slot-filled
-  templates as fallback; every candidate sentence is segmented and checked against the
-  known-words index before it is shown. Nothing read from the calendar, the shade, or
-  the screen ever leaves the phone. The ~3GB model file is pushed once at dev time —
-  the Daily briefing panel prints the exact `adb push` target when it is missing.
-- The settings panel doubles as a test bench: model status and download, a
-  "Generate now" button, and the raw model output with every verifier rejection.
+- Composed on-device with slot-filled templates as fallback; every candidate sentence is
+  segmented and checked against the known-words index before it is shown. Nothing read
+  from the calendar, the shade, or the screen ever leaves the phone. Two runtimes, picked
+  by the model file in the app's `models/` dir: a `.gguf` runs through llama.cpp
+  (current daily driver: Qwen3.5-2B, 1.34GB, ~3s a sentence) and wins over a `.litertlm`
+  (Gemma via LiteRT-LM). Models are pushed once at dev time — the Daily briefing panel
+  prints the exact `adb push` target when none is installed.
+- The settings panel doubles as a test bench: model status, a "Generate now" button,
+  "Bench ×8" (seeded fixture briefings scored by the verifier — pass rate and latency),
+  and the raw model output with every verifier rejection.
 
 Lookups run whenever the accessibility service is on. There is deliberately no
 in-app switch for them — the service is the one control, and a second one would
@@ -148,5 +151,7 @@ After each install on a test device:
 8. Grant Calendar and Notification access in the Daily briefing panel, tap
    `Generate now`, and confirm a sentence appears with its debug readout; pull
    down the shade and confirm the notification's expanded view carries it. Clear
-   all due cards and confirm the dismissable "All caught up" line replaces the
-   due notification.
+   all due cards and confirm the dismissable 复习完了 ✓ line replaces the
+   due notification. Grant Usage access and confirm 今天学了 N 分钟 joins the stats
+   line; tap Speak and confirm the sentence is spoken; tap Bench ×8 and confirm a
+   pass-rate readout.

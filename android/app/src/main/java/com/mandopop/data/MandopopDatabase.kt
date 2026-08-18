@@ -186,22 +186,14 @@ interface CardContentDao {
      * sentences were captured this query could pick a card whose stored "word" was really one
      * fragment scavenged out of a sentence — excluding them is the honest version of that.
      */
-    @Query(
-        """
-        SELECT c.* FROM card_content c
-        JOIN schedules s ON s.card_id = c.card_id
-        WHERE c.english IS NOT NULL AND c.is_sentence = 0
-          AND s.suspended = 0 AND s.due_time_ms < :boundaryMs
-        ORDER BY s.lapses DESC, s.due_time_ms ASC
-        LIMIT 1
-        """,
-    )
-    suspend fun dueExample(boundaryMs: Long): CardContentEntity?
-
     /**
-     * The most-forgotten due words, plural: the notification prefers whichever of them can be
-     * shown inside an i+1 sentence, and a single-candidate query made one sentence-less word
-     * (选择, zero studied sentences contain it) lock the whole surface to bare-word mode.
+     * The most-forgotten due words: the notification prefers whichever of them can be shown
+     * inside an i+1 sentence (a single-candidate query once locked the surface to bare-word
+     * mode because 选择 has no studied sentence). Grouped per card so a multi-prompt card
+     * cannot eat two candidate slots, and tie-broken by card id — the repo's own history says
+     * what unordered queries do (twelve rows changed value between runs), and here a tie
+     * swapping between the engine's resolution and the notifier's would silently strand the
+     * generated sentence.
      */
     @Query(
         """
@@ -209,7 +201,8 @@ interface CardContentDao {
         JOIN schedules s ON s.card_id = c.card_id
         WHERE c.english IS NOT NULL AND c.is_sentence = 0
           AND s.suspended = 0 AND s.due_time_ms < :boundaryMs
-        ORDER BY s.lapses DESC, s.due_time_ms ASC
+        GROUP BY c.card_id
+        ORDER BY MAX(s.lapses) DESC, MIN(s.due_time_ms) ASC, c.card_id
         LIMIT :limit
         """,
     )
