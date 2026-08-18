@@ -11,7 +11,7 @@ object BriefingPrompt {
     fun build(gist: String, words: List<String>, avoid: List<String> = emptyList()): String =
         buildString {
             append("You write one short, simple, natural Chinese sentence for a beginner.\n")
-            append("Rules: simplified characters only. Build the sentence from the given words. ")
+            append("Rules: simplified characters only. Compose it using words from the given list. ")
             append("Keep it under 15 characters. ")
             append("Never translate or transliterate names - call a person 朋友. ")
             append("Output only the Chinese sentence - no pinyin, no translation, no quotes.\n\n")

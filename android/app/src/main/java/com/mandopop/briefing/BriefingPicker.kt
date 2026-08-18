@@ -224,9 +224,14 @@ object BriefingPicker {
     /** Hard cap on any untrusted text entering a prompt — one short line, never a wall. */
     private const val MAX_GIST_CHARS = 80
 
-    private const val MAX_CONTENT_WORDS = 8
-    private const val MAX_TOPIC_WORDS = 3
-    private const val MAX_PROMPT_WORDS = 6
+    // Sized by the model's instruction-following, not by context (12 words ≈ 30 of 1024
+    // tokens): a 2B treats up to ~a dozen words as a palette to compose from naturally —
+    // which is the point, a richer relevant palette raises the odds the natural phrasing is
+    // already in-vocabulary and the verifier passes first try. Past ~15 the list stops
+    // steering. Still code-picked relevance, never the rejected corpus-allowlist-in-prompt.
+    private const val MAX_CONTENT_WORDS = 16
+    private const val MAX_TOPIC_WORDS = 8
+    private const val MAX_PROMPT_WORDS = 12
 
     private val WORD = Regex("[A-Za-z][A-Za-z']+")
 
