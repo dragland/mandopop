@@ -336,7 +336,9 @@ abstract class MandopopDatabase : RoomDatabase() {
          * so pasting Room's own statement is the only way to be sure. `ALTER TABLE ADD COLUMN` is
          * not idempotent, unlike its neighbour — re-registering this migration would throw.
          */
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
+        // Internal, not private: MigrationTest must pass the real object to Room 2.7's
+        // MigrationTestHelper, which no longer discovers registered migrations on its own.
+        internal val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE `card_content` " +

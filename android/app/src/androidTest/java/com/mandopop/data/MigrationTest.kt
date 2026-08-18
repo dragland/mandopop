@@ -43,9 +43,11 @@ class MigrationTest {
             )
         }
 
-        // runMigrationsAndValidate is the assertion: it applies the migration and then compares the
-        // result column-by-column against the exported v3 schema.
-        val db = helper.runMigrationsAndValidate(DB_NAME, 3, true)
+        // runMigrationsAndValidate is the assertion: it applies the migration and then compares
+        // the result column-by-column against the exported v3 schema. The migration is passed
+        // explicitly — Room 2.7's helper no longer finds it on its own, which this suite only
+        // noticed once it stopped being run with a class filter that skipped it.
+        val db = helper.runMigrationsAndValidate(DB_NAME, 3, true, MandopopDatabase.MIGRATION_2_3)
 
         db.query("SELECT hanzi, parser_version, is_sentence FROM card_content").use { cursor ->
             assertTrue("card content should survive the upgrade", cursor.moveToFirst())
