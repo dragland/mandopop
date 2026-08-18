@@ -37,9 +37,19 @@ object StudyStats {
         )
     }
 
-    /** One line, " · "-joined — the expanded view has no room for a dashboard. */
-    fun line(stats: Stats, minutesStudied: Int?): String = buildString {
-        append("≈${stats.recallable} recallable now · ${stats.mature} mature / ${stats.young} young")
+    /**
+     * One line, " · "-joined — the expanded view has no room for a dashboard. Coverage leads:
+     * SUBTLEX frequency mass of the known vocabulary over the whole corpus's mass, "the
+     * fraction of everyday running Chinese you can read" — Zipf makes early progress visibly
+     * fast, unlike a raw dictionary percentage. Coverage ≠ comprehension (Nation's ~98%
+     * threshold is the caveat of record), so the copy says "everyday Chinese", never fluency.
+     */
+    fun line(stats: Stats, minutesStudied: Int?, coveragePercent: Double?): String = buildString {
+        if (coveragePercent != null && coveragePercent > 0) {
+            append("≈%.1f%% of everyday Chinese".format(coveragePercent))
+            append(" · ")
+        }
+        append("≈${stats.recallable} recallable now")
         if (minutesStudied != null && minutesStudied > 0) {
             append(" · $minutesStudied min studied")
         }

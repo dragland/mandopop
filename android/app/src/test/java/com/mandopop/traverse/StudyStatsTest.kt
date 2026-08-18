@@ -49,10 +49,19 @@ class StudyStatsTest {
     }
 
     @Test
-    fun lineOmitsMinutesWhenUngrantedOrZero() {
+    fun lineOmitsWhatItCannotHonestlySay() {
         val stats = StudyStats.Stats(recallable = 12, mature = 3, young = 9)
-        assertTrue(!StudyStats.line(stats, null).contains("min"))
-        assertTrue(!StudyStats.line(stats, 0).contains("min"))
-        assertTrue(StudyStats.line(stats, 38).contains("38 min studied"))
+        assertTrue(!StudyStats.line(stats, null, null).contains("min"))
+        assertTrue(!StudyStats.line(stats, 0, null).contains("min"))
+        assertTrue(!StudyStats.line(stats, null, null).contains("%"))
+        assertTrue(StudyStats.line(stats, 38, null).contains("38 min studied"))
+    }
+
+    @Test
+    fun coverageLeadsTheLine() {
+        val stats = StudyStats.Stats(recallable = 12, mature = 3, young = 9)
+        val line = StudyStats.line(stats, 38, 41.27)
+        assertTrue(line, line.startsWith("≈41.3% of everyday Chinese"))
+        assertTrue(line, "mature" !in line && "young" !in line)
     }
 }

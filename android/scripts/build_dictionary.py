@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 # Bump when the schema changes; DictionaryRepository.EXPECTED_USER_VERSION must match.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Must match FORMAT_VERSION in scripts/preprocess_cedict.js.
 FORMAT_VERSION = 2
@@ -71,7 +71,10 @@ def create_schema(connection: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY,
             simplified TEXT NOT NULL,
             pinyin TEXT NOT NULL,
-            definitions TEXT NOT NULL
+            definitions TEXT NOT NULL,
+            -- SUBTLEX-CH mass for the written form (NULL when the corpus never saw it); the
+            -- stats line's coverage percentage sums this per distinct form.
+            frequency REAL
         );
 
         CREATE TABLE lookup_keys (
@@ -110,15 +113,19 @@ def insert_rows(
     entries = dictionary["entries"]
     index = dictionary["index"]
 
-    entry_rows: list[tuple[int, str, str, str]] = []
+    entry_rows: list[tuple[int, str, str, str, object]] = []
     for position, entry in enumerate(entries):
         simplified, pinyin, definition_list = validate_entry(f"entry[{position}]", 0, entry)
+        frequency = entry.get("f")
+        if frequency is not None and not isinstance(frequency, (int, float)):
+            raise ValueError(f"Invalid frequency on entry[{position}]: {frequency!r}")
         entry_rows.append(
             (
                 position + 1,
                 simplified,
                 pinyin,
                 json.dumps(definition_list, ensure_ascii=False, separators=(",", ":")),
+                frequency,
             )
         )
 
@@ -143,7 +150,7 @@ def insert_rows(
 
     with connection:
         connection.executemany(
-            "INSERT INTO entries(id, simplified, pinyin, definitions) VALUES (?, ?, ?, ?)",
+            "INSERT INTO entries(id, simplified, pinyin, definitions, frequency) VALUES (?, ?, ?, ?, ?)",
             entry_rows,
         )
         connection.executemany(
@@ -156,6 +163,8 @@ def insert_rows(
                 ("schema_version", str(SCHEMA_VERSION)),
                 ("source_sha256", source_sha256),
                 ("entry_count", str(len(entry_rows))),
+                # Whole-corpus mass, words outside CC-CEDICT included — the honest denominator.
+                ("frequency_total", repr(float(dictionary.get("fTotal", 0.0)))),
                 ("lookup_count", str(len(key_rows))),
             ],
         )

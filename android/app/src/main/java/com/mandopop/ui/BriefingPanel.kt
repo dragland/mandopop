@@ -138,6 +138,7 @@ internal fun BriefingPanel(
                         busy = true
                         error = null
                         try {
+                            BriefingEngine.refreshScreenScore(context.applicationContext)
                             BriefingEngine.refresh(context.applicationContext, force = true)
                             briefing = BriefingEngine.current
                             attempt = BriefingEngine.lastAttempt

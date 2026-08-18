@@ -1,6 +1,7 @@
 package com.mandopop.notification
 
 import android.app.AppOpsManager
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Build
@@ -13,6 +14,10 @@ import java.time.ZoneId
  * Foreground minutes spent in study apps today, straight from UsageStats — OS-held, queried at
  * read time, stored nowhere (the purity rule). Needs the PACKAGE_USAGE_STATS special-access
  * grant; ungranted degrades to null and the stats line simply omits the minutes.
+ *
+ * Summed from foreground/background *events* clipped to the local day, never from
+ * `queryUsageStats` buckets: daily buckets don't align to local midnight, so a bucket query
+ * minutes after midnight happily reports yesterday's whole total as "today".
  *
  * Caveats of record (spec.md §4.3): foreground ≠ engagement, and browser-based study is
  * invisible here.
@@ -57,12 +62,31 @@ object UsageMinutes {
         val manager = context.getSystemService(UsageStatsManager::class.java) ?: return null
         val zone = ZoneId.systemDefault()
         val startOfDay = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
+        val now = System.currentTimeMillis()
         return try {
-            val byPackage = manager.queryAndAggregateUsageStats(startOfDay, System.currentTimeMillis())
-            val totalMs = STUDY_PACKAGES.sumOf { byPackage[it]?.totalTimeInForeground ?: 0L }
+            val events = manager.queryEvents(startOfDay, now) ?: return null
+            var totalMs = 0L
+            val resumedAt = HashMap<String, Long>()
+            val event = UsageEvents.Event()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.packageName !in STUDY_PACKAGES) continue
+                // ACTIVITY_RESUMED/PAUSED share values with the pre-Q constants.
+                @Suppress("DEPRECATION")
+                when (event.eventType) {
+                    UsageEvents.Event.MOVE_TO_FOREGROUND ->
+                        resumedAt.putIfAbsent(event.packageName, event.timeStamp)
+                    UsageEvents.Event.MOVE_TO_BACKGROUND ->
+                        resumedAt.remove(event.packageName)?.let {
+                            totalMs += (event.timeStamp - it).coerceAtLeast(0)
+                        }
+                }
+            }
+            // Anything still foreground counts up to the query moment.
+            for (since in resumedAt.values) totalMs += (now - since).coerceAtLeast(0)
             (totalMs / 60_000L).toInt()
         } catch (error: Exception) {
-            Log.w(TAG, "usage stats query failed", error)
+            Log.w(TAG, "usage events query failed", error)
             null
         }
     }

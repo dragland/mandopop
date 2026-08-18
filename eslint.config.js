@@ -2,7 +2,13 @@ import globals from 'globals';
 
 export default [
   {
-    ignores: ['node_modules/**', 'cedict.json', 'android/**/build/**'],
+    ignores: [
+      'node_modules/**',
+      'cedict.json',
+      'android/**/build/**',
+      // Vendored llama.cpp ships its own JS (server bench, UI); not ours to lint.
+      'android/third_party/**',
+    ],
   },
   {
     files: ['**/*.js'],

@@ -86,6 +86,48 @@ class DictionaryRepository(private val context: Context) {
      * each would mean thousands of round trips for a question that is one indexed scan per chunk.
      * Membership only — callers that need the entry itself still go through [lookupBySimplified].
      */
+    /**
+     * SUBTLEX mass covered by [words] and the whole corpus's mass — the stats line's
+     * "% of everyday running Chinese you can read". Per distinct written form (MAX over
+     * homograph entries: frequency is form-keyed, so summing per entry would double-count
+     * 东西's two readings). The denominator comes from build-time metadata and includes words
+     * CC-CEDICT doesn't know, so the percentage stays honest.
+     */
+    suspend fun frequencyCoverage(words: Collection<String>): Pair<Double, Double> {
+        return withContext(Dispatchers.IO) {
+            try {
+                var mass = 0.0
+                for (chunk in words.distinct().chunked(MEMBERSHIP_CHUNK)) {
+                    val placeholders = chunk.joinToString(",") { "?" }
+                    val sql = """
+                        SELECT SUM(f) FROM (
+                            SELECT MAX(frequency) AS f FROM entries
+                            WHERE simplified IN ($placeholders) AND frequency IS NOT NULL
+                            GROUP BY simplified
+                        )
+                    """.trimIndent()
+                    getDatabase().rawQuery(sql, chunk.toTypedArray()).use { cursor ->
+                        if (cursor.moveToFirst() && !cursor.isNull(0)) mass += cursor.getDouble(0)
+                    }
+                }
+                mass to totalFrequencyMass()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Frequency coverage query failed", error)
+                0.0 to 0.0
+            }
+        }
+    }
+
+    private fun totalFrequencyMass(): Double =
+        getDatabase().rawQuery(
+            "SELECT value FROM metadata WHERE key = 'frequency_total'",
+            null,
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0).toDoubleOrNull() ?: 0.0 else 0.0
+        }
+
     suspend fun knownSimplified(words: Collection<String>): Set<String> {
         if (words.isEmpty()) return emptySet()
         return withContext(Dispatchers.IO) {
@@ -297,7 +339,7 @@ class DictionaryRepository(private val context: Context) {
         private const val PREFS_NAME = "mandopop_dictionary"
         private const val KEY_COPIED_HASH = "copied_hash"
         // Must match SCHEMA_VERSION in android/scripts/build_dictionary.py.
-        private const val EXPECTED_USER_VERSION = 2
+        private const val EXPECTED_USER_VERSION = 3
         /** SQLite's default parameter ceiling is 999; this keeps well clear of it. */
         private const val MEMBERSHIP_CHUNK = 400
     }

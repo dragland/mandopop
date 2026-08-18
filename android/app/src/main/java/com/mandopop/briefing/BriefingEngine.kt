@@ -164,10 +164,15 @@ object BriefingEngine {
         val appContext = context.applicationContext
         scope.launch(Dispatchers.Default) {
             try {
-                val changed = refresh(appContext)
+                // The score is glance-time data about *this* screen — it must recompute and
+                // repost even when the briefing's inputs haven't moved, which is why it lives
+                // outside the signature cache.
+                val scoreChanged = runCatching { refreshScreenScore(appContext) }
+                    .getOrDefault(false)
+                val briefingChanged = refresh(appContext)
                 // Stats move with the clock even when the briefing inputs don't.
                 runCatching { StatsTail.refresh(appContext) }
-                if (changed) repostFromLocal(appContext)
+                if (scoreChanged || briefingChanged) repostFromLocal(appContext)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -175,6 +180,38 @@ object BriefingEngine {
             }
         }
     }
+
+    /**
+     * Rescores the current screen snapshot: readable-% for Chinese screens, sayable-% for
+     * English ones. Returns whether the rendered line changed.
+     */
+    suspend fun refreshScreenScore(context: Context): Boolean =
+        withContext(Dispatchers.Default) {
+            mutex.withLock {
+                val snap = ScreenTextMonitor.snapshot
+                    ?.takeIf { System.currentTimeMillis() - it.capturedAtMs < SCORE_FRESH_MS }
+                    ?: return@withLock false
+                val database = MandopopDatabase.get(context)
+                val known = database.frontierDao().knownHanzi().toHashSet()
+                if (known.isEmpty()) return@withLock false
+                val dictionary = dictionary ?: DictionaryRepository(context.applicationContext)
+                    .also { dictionary = it }
+                val snapWords = dictionary.knownSimplified(Segmenter.candidates(snap.text))
+                val score = ScreenScoring.readable(
+                    snap.text,
+                    isWord = { it in snapWords || it in known },
+                    isKnown = { it in known },
+                ) ?: ScreenScoring.sayable(
+                    snap.text,
+                    isKnown = { it in known },
+                    lookup = { word -> dictionary.lookup(word, 1).firstOrNull()?.simplified },
+                ) ?: return@withLock false
+                val line = ScreenScoring.line(score)
+                val changed = storedScore?.first != line
+                storedScore = line to snap.capturedAtMs
+                changed
+            }
+        }
 
     /**
      * Regenerates if the inputs moved (or [force]). Returns whether anything changed — callers
@@ -227,23 +264,6 @@ object BriefingEngine {
         val rejections = mutableListOf<String>()
         val dictionary = dictionary ?: DictionaryRepository(context.applicationContext)
             .also { dictionary = it }
-
-        // Score the screen snapshot while the vocabulary and dictionary are in hand — cheap, and
-        // independent of whether a briefing plan comes together. Chinese screens score as
-        // readable-%; English screens (most of this phone's reading) as sayable-%.
-        ScreenTextMonitor.snapshot?.takeIf { inputs.nowMs - it.capturedAtMs < SCORE_FRESH_MS }?.let { snap ->
-            val snapWords = dictionary.knownSimplified(Segmenter.candidates(snap.text))
-            val score = ScreenScoring.readable(
-                snap.text,
-                isWord = { it in snapWords || it in known },
-                isKnown = { it in known },
-            ) ?: ScreenScoring.sayable(
-                snap.text,
-                isKnown = { it in known },
-                lookup = { word -> dictionary.lookup(word, 1).firstOrNull()?.simplified },
-            )
-            score?.let { storedScore = ScreenScoring.line(it) to snap.capturedAtMs }
-        }
 
         val plan = BriefingPicker.plan(inputs, known, frontier, ZoneId.systemDefault()) { word ->
             dictionary.lookup(word, 1).firstOrNull()?.simplified
