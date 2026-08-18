@@ -102,6 +102,36 @@ class BriefingPickerTest {
     }
 
     @Test
+    fun expressibleNotificationBeatsUnmappableCalendarEvent() = runTest {
+        // A first calendar event whose title maps to nothing must not eat the briefing while
+        // a notification full of known vocabulary waits behind it.
+        val plan = plan(
+            inputs(
+                events = listOf(CalendarEvent("Alexander Bobrov PTO", at(9), at(10), allDay = true)),
+                notifications = listOf(
+                    ActiveNotification("Messages", "coffee with a friend?", "", "msg", 1L),
+                ),
+            ),
+        )!!
+        assertEquals(BriefingPicker.SourceKind.NOTIFICATION, plan.kind)
+        assertEquals("咖啡", plan.topic)
+    }
+
+    @Test
+    fun secondCalendarEventWinsWhenFirstIsUnmappable() = runTest {
+        val plan = plan(
+            inputs(
+                events = listOf(
+                    CalendarEvent("Alexander Bobrov PTO", at(9), at(10), allDay = true),
+                    CalendarEvent("Team meeting", at(15), at(16), allDay = false),
+                ),
+            ),
+        )!!
+        assertEquals(BriefingPicker.SourceKind.CALENDAR, plan.kind)
+        assertEquals("会议", plan.topic)
+    }
+
+    @Test
     fun nothingRelevantMeansNoPlan() = runTest {
         assertNull(plan(inputs(screen = ScreenSnapshot("com.app", "qzx qzx qzx", 0L))))
         assertNull(plan(inputs()))

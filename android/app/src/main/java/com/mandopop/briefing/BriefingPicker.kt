@@ -46,9 +46,11 @@ object BriefingPicker {
     ): Plan? {
         val frontierByGlossWord = glossIndex(frontier)
 
-        // Relevance picks the context; the sources are tried in how much they say about the
-        // user's actual day. A source with no mappable vocabulary falls through to the next.
-        inputs.events.firstOrNull()?.let { event ->
+        // Pass 1 — sources that can actually say something in the user's vocabulary. Every
+        // event and every notification gets a chance: locking onto the first calendar event
+        // regardless handed the model a gist that was one untranslatable name ("Alexander …
+        // vacation") while a perfectly expressible notification sat right behind it.
+        for (event in inputs.events) {
             buildPlan(
                 kind = SourceKind.CALENDAR,
                 gist = calendarGist(event, zone),
@@ -57,12 +59,10 @@ object BriefingPicker {
                 known = known,
                 frontierByGlossWord = frontierByGlossWord,
                 lookup = lookup,
-                // A calendar event is briefable even when nothing in its title maps: "you have
-                // plans this afternoon" is still true, relevant and comprehensible.
-                viableWithoutTopic = true,
+                viableWithoutTopic = false,
             )?.let { return it }
         }
-        salientNotification(inputs.notifications)?.let { notification ->
+        for (notification in rankedNotifications(inputs.notifications)) {
             buildPlan(
                 kind = SourceKind.NOTIFICATION,
                 gist = notificationGist(notification),
@@ -86,6 +86,20 @@ object BriefingPicker {
                 frontierByGlossWord = frontierByGlossWord,
                 lookup = lookup,
                 viableWithoutTopic = false,
+            )?.let { return it }
+        }
+        // Pass 2 — nothing anywhere maps. A calendar event is still briefable as pure time
+        // ("you have plans this afternoon"): true, relevant, comprehensible, boring.
+        inputs.events.firstOrNull()?.let { event ->
+            buildPlan(
+                kind = SourceKind.CALENDAR,
+                gist = calendarGist(event, zone),
+                text = event.title,
+                timeOfDay = timeOfDay(event, zone, known),
+                known = known,
+                frontierByGlossWord = frontierByGlossWord,
+                lookup = lookup,
+                viableWithoutTopic = true,
             )?.let { return it }
         }
         return null
@@ -143,11 +157,11 @@ object BriefingPicker {
      * People-first, then recency: a message beats a promo, and among equals the newest wins.
      * Rank, don't filter — a shade with only promos still describes the user's day.
      */
-    private fun salientNotification(notifications: List<ActiveNotification>): ActiveNotification? =
+    private fun rankedNotifications(notifications: List<ActiveNotification>): List<ActiveNotification> =
         notifications.sortedWith(
             compareByDescending<ActiveNotification> { it.category in PERSONAL_CATEGORIES }
                 .thenByDescending { it.postTimeMs },
-        ).firstOrNull()
+        )
 
     private fun calendarGist(event: CalendarEvent, zone: ZoneId): String {
         val title = event.title.take(MAX_GIST_CHARS)
