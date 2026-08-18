@@ -75,7 +75,16 @@ static std::string apply_chat_template(const std::string &prompt) {
         written = llama_chat_apply_template(tmpl, &msg, 1, true, buf.data(), (int32_t) buf.size());
         if (written < 0) return prompt;
     }
-    return std::string(buf.data(), written);
+    std::string formatted(buf.data(), written);
+
+    // Reasoning-tuned templates (Qwen) open the assistant turn thinking, and a short token
+    // budget gets entirely eaten by it — 0/8 on the first bench, every output an unclosed
+    // <think>. Prefilling a closed empty think block steps straight to the answer. Gated on
+    // the template actually mentioning think, so plain chat models are untouched.
+    if (std::string(tmpl).find("think") != std::string::npos) {
+        formatted += "<think>\n\n</think>\n\n";
+    }
+    return formatted;
 }
 
 extern "C" JNIEXPORT jstring JNICALL

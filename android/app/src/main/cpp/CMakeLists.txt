@@ -13,6 +13,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # toolchain ignored in practice — this covers every target in the subdirectory too.
 add_link_options("-Wl,-z,max-page-size=16384")
 
+# Without an explicit arch, ggml compiles for baseline armv8-a and quantized matmuls run on
+# scalar code — measured as whole minutes per sentence. Tensor G4's cores are Armv9.2; 8.6-a
+# with explicit dotprod+i8mm is the conservative setting that lights up the fast kernels
+# (and lets KleidiAI's i8mm path engage).
+set(GGML_CPU_ARM_ARCH "armv8.6-a+dotprod+i8mm" CACHE STRING "" FORCE)
+
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)

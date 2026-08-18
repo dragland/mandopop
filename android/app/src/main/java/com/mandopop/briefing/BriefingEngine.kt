@@ -392,6 +392,9 @@ object BriefingEngine {
                 is BriefingVerifier.Verdict.Fail ->
                     lines += "✗ ${elapsed}ms ${result.reason} ← ${sentence.take(30)}"
             }
+            // The bench is read over adb as much as on-screen; raw output included because a
+            // rejection line alone can't show *how* the model failed.
+            Log.i(TAG, "bench: ${lines.last()} | raw: ${raw.take(200)}")
         }
         val timed = lines.count { it.startsWith("✓") || it.contains("ms ") }
         return BenchResult(passed, samples.size, if (timed > 0) totalMs / timed else 0, lines)
