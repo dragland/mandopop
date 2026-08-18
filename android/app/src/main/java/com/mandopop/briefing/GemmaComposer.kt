@@ -105,7 +105,9 @@ class GemmaComposer(private val appContext: Context) : SentenceComposer {
             .filterIsInstance<Content.Text>()
             .joinToString("") { it.text }
 
-    private fun modelDir(): File = File(appContext.getExternalFilesDir(null), "models")
+    // mkdirs so the dir is app-owned — a shell-created one is untraversable by the app's uid.
+    private fun modelDir(): File =
+        File(appContext.getExternalFilesDir(null), "models").apply { mkdirs() }
 
     /**
      * Any `.litertlm` dropped in the models dir — auditioning a different model is an adb push,

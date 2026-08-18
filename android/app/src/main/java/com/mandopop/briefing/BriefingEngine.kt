@@ -108,7 +108,9 @@ object BriefingEngine {
     @Synchronized
     fun composerFor(context: Context): SentenceComposer {
         val appContext = context.applicationContext
-        val dir = java.io.File(appContext.getExternalFilesDir(null), "models")
+        // The app must own this dir: one created by `adb shell mkdir` belongs to `shell` and the
+        // app's uid cannot traverse it — the files look missing while sitting right there.
+        val dir = java.io.File(appContext.getExternalFilesDir(null), "models").apply { mkdirs() }
         val gguf = dir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") }
             ?.minByOrNull { it.name }
         val key = gguf?.let { "gguf:${it.name}" } ?: "litert"

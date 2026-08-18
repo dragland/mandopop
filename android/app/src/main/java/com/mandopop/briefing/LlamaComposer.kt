@@ -69,7 +69,9 @@ class LlamaComposer(private val appContext: Context) : SentenceComposer {
         Log.i(TAG, "engine loaded: ${file.name} on llama.cpp/CPU")
     }
 
-    private fun modelDir(): File = File(appContext.getExternalFilesDir(null), "models")
+    // mkdirs so the dir is app-owned — a shell-created one is untraversable by the app's uid.
+    private fun modelDir(): File =
+        File(appContext.getExternalFilesDir(null), "models").apply { mkdirs() }
 
     private fun modelFile(): File? = modelDir()
         .listFiles { file -> file.isFile && file.name.endsWith(".gguf") }
