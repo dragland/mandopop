@@ -76,21 +76,14 @@ object DueNotifier {
                     val example = outcome.example
                     val briefing = BriefingEngine.current
                     // ONE sentence, characters only — never a word plus a second sentence
-                    // stacked. Best case the briefing wove today's context around the due word
-                    // (the word rides in its prompt); else the course cloze carries it; else
-                    // whichever single line exists. Reveal still answers for the due word.
-                    val body = when {
-                        briefing != null && example != null &&
-                            briefing.sentence.contains(example.hanzi) -> briefing.sentence
-                        example?.sentence != null -> example.sentence
-                        // The bare word outranks a briefing that lacks it: Reveal answers for
-                        // the due word, and a Reveal whose question appears nowhere on screen
-                        // is a broken recall loop. The wordless briefing gets its showing at
-                        // zero due.
-                        example != null -> example.hanzi
-                        briefing != null -> briefing.sentence
-                        else -> "共 ${outcome.liveCount} 张卡在学"
-                    }
+                    // stacked. The briefing (about the user's actual day, never bent around an
+                    // SRS word) carries the line when it exists; recall belongs to the
+                    // course-authored cloze or bare word behind it, and to Reveal — which
+                    // shows the due card (word + meaning) whether or not the word was visible.
+                    val body = briefing?.sentence
+                        ?: example?.sentence
+                        ?: example?.hanzi
+                        ?: "共 ${outcome.liveCount} 张卡在学"
                     post(
                         context,
                         title = "今天 · ${outcome.dueCount} 张到期",

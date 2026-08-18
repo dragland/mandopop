@@ -161,13 +161,14 @@ object BriefingEngine {
                 // outside the signature cache.
                 val scoreChanged = runCatching { refreshScreenScore(appContext) }
                     .getOrDefault(false)
-                // One sync, one example resolution, threaded everywhere it's needed — the
-                // audited version constructed two TraverseSyncs and ran the 10-candidate cloze
-                // walk twice per pull for identical answers.
+                val briefingChanged = refresh(appContext)
+                // One sync, one example resolution — for the notification display only. The
+                // briefing is deliberately not bent around the due word: weaving a random SRS
+                // word into "your day" produced 今天你要选择家-grade sentences, and recall
+                // belongs to the course-authored cloze and Reveal, not the composed line.
                 val sync = TraverseSync(appContext)
                 val signedIn = sync.isSignedIn()
                 val example = if (signedIn) runCatching { sync.localExample() }.getOrNull() else null
-                val briefingChanged = refresh(appContext, dueWord = example?.hanzi)
                 // Stats move with the clock even when the briefing inputs don't.
                 runCatching { StatsTail.refresh(appContext) }
                 if ((scoreChanged || briefingChanged) && signedIn) {
@@ -225,19 +226,10 @@ object BriefingEngine {
      */
     suspend fun refresh(context: Context, force: Boolean = false): Boolean =
         withContext(Dispatchers.Default) {
-            // Callers without a resolved example in hand pay one cloze walk here.
-            val dueWord = runCatching { TraverseSync(context).localExample()?.hanzi }.getOrNull()
-            mutex.withLock { refreshLocked(context, force, dueWord) }
+            mutex.withLock { refreshLocked(context, force) }
         }
 
-    /** [dueWord]: the word the notification's example resolves to, threaded in by callers that
-     *  already resolved it so the cloze walk runs once per pull, not twice. */
-    suspend fun refresh(context: Context, force: Boolean = false, dueWord: String?): Boolean =
-        withContext(Dispatchers.Default) {
-            mutex.withLock { refreshLocked(context, force, dueWord) }
-        }
-
-    private suspend fun refreshLocked(context: Context, force: Boolean, dueWord: String?): Boolean {
+    private suspend fun refreshLocked(context: Context, force: Boolean): Boolean {
         if (!SettingsStore(context).snapshot().briefingEnabled) return false
         // Generation is the battery cost — SystemUI announces volume presses and every unlock,
         // not just shades, and an active phone's notification set churns enough that the input
@@ -279,18 +271,8 @@ object BriefingEngine {
         val rejections = mutableListOf<String>()
         val dictionary = DictionaryRepository.shared(context)
 
-        val basePlan = BriefingPicker.plan(inputs, known, frontier, ZoneId.systemDefault()) { word ->
+        val plan = BriefingPicker.plan(inputs, known, frontier, ZoneId.systemDefault()) { word ->
             dictionary.lookup(word, 1).firstOrNull()?.simplified
-        }
-        // The notification shows ONE sentence — the briefing and the recall prompt are the
-        // same line, not a stack. Feeding the due word into the prompt is what makes that
-        // possible, and it must be the SAME word the notification's example resolves to — the
-        // display only lets the briefing carry the line when it contains that word.
-        val knownDueWord = dueWord?.takeIf { it in known }
-        val plan = if (basePlan != null && knownDueWord != null) {
-            basePlan.copy(words = (basePlan.words + knownDueWord).distinct().take(7))
-        } else {
-            basePlan
         }
         if (plan == null) {
             finish(signature, null, "no relevant known vocabulary in today's inputs", emptyList())
