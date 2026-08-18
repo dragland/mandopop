@@ -38,7 +38,7 @@ object BriefingEngine {
 
     private const val MODEL_ROUNDS = 2
 
-    enum class Source { NANO, TEMPLATE }
+    enum class Source { GEMMA, TEMPLATE }
 
     data class Briefing(
         val sentence: String,
@@ -87,14 +87,21 @@ object BriefingEngine {
     var lastAttempt: Attempt? = null
         private set
 
-    val composer = GeminiNanoComposer()
-
     private val mutex = Mutex()
     private var lastSignature: Int? = null
 
     /** Held for the process lifetime, like the service's own instance — reopening the SQLite
      *  dictionary on every shade-pull was measurable, avoidable I/O. Guarded by [mutex]. */
     private var dictionary: DictionaryRepository? = null
+
+    @Volatile
+    private var composer: GemmaComposer? = null
+
+    /** One composer per process; the engine inside it holds the loaded model. */
+    fun composerFor(context: Context): GemmaComposer =
+        composer ?: synchronized(this) {
+            composer ?: GemmaComposer(context.applicationContext).also { composer = it }
+        }
 
     @Volatile
     private var lastShadeMs = 0L
@@ -204,27 +211,34 @@ object BriefingEngine {
 
         var result: Briefing? = null
 
-        if (composer.status() == GeminiNanoComposer.Status.AVAILABLE) {
-            var avoid = emptyList<String>()
-            for (round in 0 until MODEL_ROUNDS) {
-                val raw = try {
-                    composer.generate(BriefingPrompt.build(plan.gist, plan.words, avoid))
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (error: Exception) {
-                    rejections += "model error: ${GeminiNanoComposer.describe(error)}"
-                    break
-                }
-                modelOutputs += raw
-                val sentence = BriefingPrompt.extractSentence(raw)
-                when (val verdict = verdictOf(sentence)) {
-                    is BriefingVerifier.Verdict.Pass -> {
-                        result = Briefing(sentence, plan.frontier, Source.NANO, inputs.nowMs)
+        val gemma = composerFor(context)
+        when (val modelStatus = gemma.status()) {
+            is GemmaComposer.Status.MissingModel ->
+                rejections += "model not installed — adb push to ${modelStatus.expectedPath}"
+            is GemmaComposer.Status.Failed ->
+                rejections += "model engine failed: ${modelStatus.message}"
+            else -> {
+                var avoid = emptyList<String>()
+                for (round in 0 until MODEL_ROUNDS) {
+                    val raw = try {
+                        gemma.generate(BriefingPrompt.build(plan.gist, plan.words, avoid))
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (error: Exception) {
+                        rejections += "model error: ${error.message ?: error::class.simpleName}"
                         break
                     }
-                    is BriefingVerifier.Verdict.Fail -> {
-                        rejections += "nano: ${verdict.reason}"
-                        avoid = (avoid + verdict.unknownWords).distinct().take(6)
+                    modelOutputs += raw
+                    val sentence = BriefingPrompt.extractSentence(raw)
+                    when (val verdict = verdictOf(sentence)) {
+                        is BriefingVerifier.Verdict.Pass -> {
+                            result = Briefing(sentence, plan.frontier, Source.GEMMA, inputs.nowMs)
+                            break
+                        }
+                        is BriefingVerifier.Verdict.Fail -> {
+                            rejections += "gemma: ${verdict.reason}"
+                            avoid = (avoid + verdict.unknownWords).distinct().take(6)
+                        }
                     }
                 }
             }
@@ -253,7 +267,7 @@ object BriefingEngine {
                 modelOutputs = modelOutputs,
                 rejections = rejections,
                 outcome = when (result?.source) {
-                    Source.NANO -> "Gemini Nano composed it"
+                    Source.GEMMA -> "Gemma composed it"
                     Source.TEMPLATE -> "template fallback"
                     null -> "nothing verified — no briefing shown"
                 },

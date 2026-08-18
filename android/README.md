@@ -107,10 +107,11 @@ and regenerated when the notification shade is pulled down.
   currently in the shade (notification access, granted in system settings via the
   Daily briefing panel), and a rolling snapshot of the foreground app's text from the
   accessibility tree. All three are read at generation time and stored nowhere.
-- Composed on-device by Gemini Nano (ML Kit GenAI Prompt API, running in AICore) with
-  slot-filled templates as fallback; every candidate sentence is segmented and checked
-  against the known-words index before it is shown. Nothing read from the calendar,
-  the shade, or the screen ever leaves the phone.
+- Composed on-device by Gemma 3n running in-process (LiteRT-LM) with slot-filled
+  templates as fallback; every candidate sentence is segmented and checked against the
+  known-words index before it is shown. Nothing read from the calendar, the shade, or
+  the screen ever leaves the phone. The ~3GB model file is pushed once at dev time —
+  the Daily briefing panel prints the exact `adb push` target when it is missing.
 - The settings panel doubles as a test bench: model status and download, a
   "Generate now" button, and the raw model output with every verifier rejection.
 

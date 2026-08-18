@@ -30,17 +30,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.mlkit.genai.common.DownloadStatus
 import com.mandopop.briefing.BriefingEngine
-import com.mandopop.briefing.GeminiNanoComposer
+import com.mandopop.briefing.GemmaComposer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
  * The daily-briefing section: whether its inputs are granted, whether the on-device model is
  * present, and — the reason this panel is this verbose — a test bench for the model audition.
- * Raw model output and every verifier rejection are shown, because the composer decision
- * (Nano vs a bundled model) is made by reading exactly this.
+ * Raw model output and every verifier rejection are shown, because the model decision
+ * (is Gemma 3n's Chinese good enough, or step up to Qwen) is made by reading exactly this.
  */
 @Composable
 internal fun BriefingPanel(
@@ -53,27 +52,14 @@ internal fun BriefingPanel(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var modelStatus by remember { mutableStateOf<GeminiNanoComposer.Status?>(null) }
-    var downloadProgress by remember { mutableStateOf<String?>(null) }
-    var downloadError by remember { mutableStateOf<String?>(null) }
+    var modelStatus by remember { mutableStateOf<GemmaComposer.Status?>(null) }
     var busy by remember { mutableStateOf(false) }
     var briefing by remember { mutableStateOf(BriefingEngine.current) }
     var attempt by remember { mutableStateOf(BriefingEngine.lastAttempt) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    // AICore can already be mid-download when the panel opens; a one-shot read would freeze the
-    // row on "Downloading…" forever. Poll only while the state is transient. Once available,
-    // warm the model — a cold first inference is documented at up to ~a minute, which would make
-    // "Generate now" indistinguishable from a hang.
     LaunchedEffect(Unit) {
-        while (true) {
-            modelStatus = BriefingEngine.composer.status()
-            if (modelStatus != GeminiNanoComposer.Status.DOWNLOADING) break
-            kotlinx.coroutines.delay(3_000)
-        }
-        if (modelStatus == GeminiNanoComposer.Status.AVAILABLE) {
-            BriefingEngine.composer.warmup()
-        }
+        modelStatus = BriefingEngine.composerFor(context).status()
     }
 
     SettingsPanel {
@@ -107,48 +93,31 @@ internal fun BriefingPanel(
             onAction = onRequestCalendar,
         )
         StatusRow(
-            label = "Gemini Nano",
-            ok = modelStatus == GeminiNanoComposer.Status.AVAILABLE,
-            okText = when (modelStatus) {
-                GeminiNanoComposer.Status.AVAILABLE -> "Ready"
-                GeminiNanoComposer.Status.DOWNLOADABLE -> "Not downloaded"
-                GeminiNanoComposer.Status.DOWNLOADING -> "Downloading…"
-                GeminiNanoComposer.Status.UNAVAILABLE -> "Unavailable — template fallback"
+            label = "Gemma 3n model",
+            ok = modelStatus is GemmaComposer.Status.Ready,
+            okText = when (val status = modelStatus) {
+                is GemmaComposer.Status.Ready -> "Loaded (${status.backend})"
+                is GemmaComposer.Status.NotLoaded -> "On disk — loads on first generation (~10s)"
+                is GemmaComposer.Status.MissingModel -> "Not installed"
+                is GemmaComposer.Status.Failed -> "Engine failed"
                 null -> "Checking…"
             },
-            action = if (modelStatus == GeminiNanoComposer.Status.DOWNLOADABLE) "Download" else null,
-            onAction = {
-                scope.launch {
-                    downloadError = null
-                    try {
-                        BriefingEngine.composer.download().collect { status ->
-                            downloadProgress = when (status) {
-                                is DownloadStatus.DownloadStarted -> "starting…"
-                                is DownloadStatus.DownloadProgress ->
-                                    "%.0f MB".format(status.totalBytesDownloaded / 1e6)
-                                is DownloadStatus.DownloadCompleted -> null
-                                is DownloadStatus.DownloadFailed -> {
-                                    downloadError = "Model download failed: ${status.e.message}"
-                                    null
-                                }
-                                else -> downloadProgress
-                            }
-                        }
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (failure: Exception) {
-                        downloadError = "Model download failed: ${failure.message}"
-                    }
-                    modelStatus = BriefingEngine.composer.status()
-                }
-            },
+            action = null,
+            onAction = {},
         )
-        // Download feedback lives directly under the row that caused it, not a screen away.
-        downloadProgress?.let {
-            Text(text = "Downloading Gemini Nano… $it", color = MutedText, fontSize = 12.sp)
+        // The model is provisioned by hand once — a 3GB file has no business in the APK, and the
+        // exact push target is the one thing worth printing.
+        (modelStatus as? GemmaComposer.Status.MissingModel)?.let {
+            Text(
+                text = "adb push gemma-3n-e2b.litertlm ${it.expectedPath}",
+                color = MutedText,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                fontFamily = FontFamily.Monospace,
+            )
         }
-        downloadError?.let {
-            Text(text = it, color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        (modelStatus as? GemmaComposer.Status.Failed)?.let {
+            Text(text = it.message, color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -161,6 +130,7 @@ internal fun BriefingPanel(
                             BriefingEngine.refresh(context.applicationContext, force = true)
                             briefing = BriefingEngine.current
                             attempt = BriefingEngine.lastAttempt
+                            modelStatus = BriefingEngine.composerFor(context).status()
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (failure: Exception) {
@@ -207,7 +177,7 @@ internal fun BriefingPanel(
                 }
                 Text(
                     text = when (it.source) {
-                        BriefingEngine.Source.NANO -> "composed by Gemini Nano"
+                        BriefingEngine.Source.GEMMA -> "composed by Gemma"
                         BriefingEngine.Source.TEMPLATE -> "template fallback"
                     },
                     color = MutedText,
@@ -224,7 +194,7 @@ internal fun BriefingPanel(
                 a.gist?.let { DebugLine("gist", it) }
                 a.promptWords?.let { DebugLine("words", it.joinToString(" ")) }
                 a.modelOutputs.forEachIndexed { i, raw ->
-                    DebugLine("nano #${i + 1}", raw)
+                    DebugLine("gemma #${i + 1}", raw)
                 }
                 a.rejections.forEach { DebugLine("rejected", it, ErrorRed) }
                 DebugLine("outcome", a.outcome)
