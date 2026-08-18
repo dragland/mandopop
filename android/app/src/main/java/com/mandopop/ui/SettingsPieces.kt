@@ -63,29 +63,16 @@ internal fun SectionLabel(text: String) {
 }
 
 /**
- * Whether lookups actually work right now.
+ * The setup call-to-action, shown only while lookups do not work.
  *
  * The app is inert until Android grants the accessibility permission, and that is invisible from
  * inside the app — so this states it outright rather than offering an ambiguous "open settings"
- * button that looks the same either way. Once granted it steps back to a quiet confirmation.
+ * button that looks the same either way. Once granted the card disappears entirely; the quiet
+ * ● Ready confirmation lives in the header, beside the logo, where a non-event belongs.
  */
 @Composable
 internal fun ServiceStatusCard(serviceEnabled: Boolean, onOpenSettings: () -> Unit) {
-    if (serviceEnabled) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(PanelBlack, RoundedCornerShape(8.dp))
-                .border(1.dp, BorderGreen, RoundedCornerShape(8.dp))
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("●", color = NeonGreen, fontSize = 12.sp)
-            Spacer(Modifier.width(12.dp))
-            Text("Ready", color = PaleGreen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        }
-        return
-    }
+    if (serviceEnabled) return
 
     Column(
         modifier = Modifier

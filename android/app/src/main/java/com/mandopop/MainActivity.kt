@@ -328,7 +328,7 @@ private fun MandopopSettingsApp(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                Header()
+                Header(serviceEnabled = serviceEnabled)
 
                 ServiceStatusCard(
                     serviceEnabled = serviceEnabled,
@@ -425,21 +425,38 @@ private fun MandopopSettingsApp(
  * silently stale card count is impossible to debug on a real device.
  */
 @Composable
-private fun Header() {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = "Mandopop",
-            color = PaleGreen,
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = "学",
-            color = NeonGreen,
-            fontSize = 40.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Serif,
-        )
+private fun Header(serviceEnabled: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Mandopop",
+                color = PaleGreen,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "学",
+                color = NeonGreen,
+                fontSize = 40.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Serif,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        // Working-as-intended is a non-event: a quiet dot beside the logo, not a boxed row
+        // spending a full width on good news. The un-granted state gets the loud card below.
+        if (serviceEnabled) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = "Lookups ready"
+                },
+            ) {
+                Text("●", color = NeonGreen, fontSize = 11.sp)
+                Spacer(Modifier.width(8.dp))
+                Text("Ready", color = MutedText, fontSize = 13.sp)
+            }
+        }
     }
 }
 
