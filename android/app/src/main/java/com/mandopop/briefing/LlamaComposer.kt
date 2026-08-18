@@ -58,7 +58,10 @@ class LlamaComposer(private val appContext: Context) {
         // no locking of its own.
         synchronized(runtimeLock) {
             ensureLoaded()
-            val bytes = nativeGenerate(prompt, MAX_OUTPUT_TOKENS, TEMPERATURE, TOP_K)
+            // Day-keyed seed: same inputs still phrase differently tomorrow (contextual
+            // variability), while stays deterministic within a day.
+            val seed = java.time.LocalDate.now().toEpochDay().toInt()
+            val bytes = nativeGenerate(prompt, MAX_OUTPUT_TOKENS, TEMPERATURE, TOP_K, seed)
                 ?: throw IllegalStateException("llama generation failed")
             // Bytes, not a JNI string: the token budget can slice a hanzi mid-sequence, and
             // Kotlin's decoder degrades that to a replacement char for the verifier to refuse
@@ -129,6 +132,7 @@ class LlamaComposer(private val appContext: Context) {
             maxTokens: Int,
             temperature: Float,
             topK: Int,
+            seed: Int,
         ): ByteArray?
 
         @JvmStatic

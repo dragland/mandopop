@@ -92,7 +92,8 @@ static std::string apply_chat_template(const std::string &prompt) {
 // byte-level BPE happily splits a three-byte hanzi across tokens.
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_com_mandopop_briefing_LlamaComposer_nativeGenerate(
-        JNIEnv *env, jclass, jstring jprompt, jint max_tokens, jfloat temperature, jint top_k) {
+        JNIEnv *env, jclass, jstring jprompt, jint max_tokens, jfloat temperature, jint top_k,
+        jint seed) {
     if (!g_model || !g_ctx) return nullptr;
 
     const char *cprompt = env->GetStringUTFChars(jprompt, nullptr);
@@ -126,7 +127,9 @@ Java_com_mandopop_briefing_LlamaComposer_nativeGenerate(
     llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(top_k));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
-    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+    // Caller-varied (by local day): with temp 0.2 a fixed seed made identical inputs produce
+    // the identical sentence forever, which read as a caching bug from the shade.
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist((uint32_t) seed));
 
     std::string out;
     std::vector<char> piece(256);

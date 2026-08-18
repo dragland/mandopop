@@ -47,11 +47,15 @@ object BriefingPicker {
     ): Plan? {
         val frontierByGlossWord = glossIndex(frontier)
 
-        // Pass 1 — sources that can actually say something in the user's vocabulary. Every
-        // event and every notification gets a chance: locking onto the first calendar event
-        // regardless handed the model a gist that was one untranslatable name ("Alexander …
-        // vacation") while a perfectly expressible notification sat right behind it.
-        for (event in inputs.events) {
+        // Pass 1 — sources that can actually say something in the user's vocabulary, ranked by
+        // how much they say about the day: timed events (actual plans), then notifications,
+        // then all-day banner events, then the screen. All-day events rank below notifications
+        // because they are ambient wallpaper, not plans — a Google Calendar working-location
+        // banner titled "Home" maps beautifully to 家 and won the salience contest every
+        // single day, making every briefing 今天在家. Every candidate in each tier gets a
+        // chance: locking onto the first event handed the model an untranslatable name while
+        // an expressible notification sat right behind it.
+        for (event in inputs.events.filter { !it.allDay }) {
             buildPlan(
                 kind = SourceKind.CALENDAR,
                 gist = calendarGist(event, zone),
@@ -71,6 +75,18 @@ object BriefingPicker {
                     .filter { it.isNotBlank() }
                     .joinToString(" · "),
                 timeOfDay = null,
+                known = known,
+                frontierByGlossWord = frontierByGlossWord,
+                lookup = lookup,
+                viableWithoutTopic = false,
+            )?.let { return it }
+        }
+        for (event in inputs.events.filter { it.allDay }) {
+            buildPlan(
+                kind = SourceKind.CALENDAR,
+                gist = calendarGist(event, zone),
+                text = event.title,
+                timeOfDay = timeOfDay(event, zone, known),
                 known = known,
                 frontierByGlossWord = frontierByGlossWord,
                 lookup = lookup,

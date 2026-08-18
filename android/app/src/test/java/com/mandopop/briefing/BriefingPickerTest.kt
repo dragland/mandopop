@@ -132,6 +132,22 @@ class BriefingPickerTest {
     }
 
     @Test
+    fun allDayBannerLosesToARealNotification() = runTest {
+        // A Google Calendar working-location banner titled "Home" maps perfectly to 家 and
+        // used to win the day, every day. Ambient banners rank below actual notifications.
+        val plan = plan(
+            inputs(
+                events = listOf(CalendarEvent("Home", at(0), at(23), allDay = true)),
+                notifications = listOf(
+                    ActiveNotification("Messages", "coffee later?", "", "msg", 1L),
+                ),
+            ),
+        )!!
+        assertEquals(BriefingPicker.SourceKind.NOTIFICATION, plan.kind)
+        assertEquals("咖啡", plan.topic)
+    }
+
+    @Test
     fun nothingRelevantMeansNoPlan() = runTest {
         assertNull(plan(inputs(screen = ScreenSnapshot("com.app", "qzx qzx qzx", 0L))))
         assertNull(plan(inputs()))

@@ -279,6 +279,10 @@ object BriefingEngine {
             return true
         }
 
+        // Logcat is the record of what the sentence was composed FROM — without it, "why does
+        // it keep saying home" is undiagnosable.
+        Log.i(TAG, "composing: gist=\"${plan.gist}\" words=${plan.words}")
+
         suspend fun verdictOf(sentence: String) =
             verdict(sentence, known, plan.frontier?.hanzi, dictionary)
 
