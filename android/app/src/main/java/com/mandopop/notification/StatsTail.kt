@@ -3,7 +3,6 @@ package com.mandopop.notification
 import android.content.Context
 import com.mandopop.data.MandopopDatabase
 import com.mandopop.dictionary.DictionaryRepository
-import com.mandopop.traverse.StudyStats
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -26,21 +25,35 @@ object StatsTail {
     val line: String?
         get() = stored?.takeIf { sameLocalDay(it.second) }?.first
 
+    /**
+     * One progress number, on purpose. Coverage — SUBTLEX mass of `known_words` over the whole
+     * corpus — is the single tracked truth; a second memory-decay count was built, audited by
+     * its owner down from 1150 to 264, and then deleted, because a stat whose denominator
+     * needs a footnote is a bad ambient stat. Minutes is today's effort, a different axis.
+     * Coverage is front-loaded by Zipf (this account's top-10 words carry 26 of its 51
+     * points) — token coverage, never comprehension.
+     */
     suspend fun refresh(context: Context) {
         val database = MandopopDatabase.get(context)
-        val rows = database.scheduleDao().liveIntervals()
-        if (rows.isEmpty()) {
+        val known = database.frontierDao().knownHanzi()
+        if (known.isEmpty()) {
             stored = null
             return
         }
-        val now = System.currentTimeMillis()
-        val stats = StudyStats.compute(rows, now)
         val dictionary = dictionary
             ?: DictionaryRepository(context.applicationContext).also { dictionary = it }
-        val (knownMass, totalMass) = dictionary
-            .frequencyCoverage(database.frontierDao().knownHanzi())
-        val coverage = if (totalMass > 0) knownMass / totalMass * 100.0 else null
-        stored = StudyStats.line(stats, UsageMinutes.today(context), coverage) to now
+        val (knownMass, totalMass) = dictionary.frequencyCoverage(known)
+        if (totalMass <= 0) {
+            stored = null
+            return
+        }
+        val line = buildString {
+            append("日常中文 ≈%.1f%% 看得懂".format(knownMass / totalMass * 100.0))
+            UsageMinutes.today(context)?.takeIf { it > 0 }?.let {
+                append(" · 今天学了 $it 分钟")
+            }
+        }
+        stored = line to System.currentTimeMillis()
     }
 
     private fun sameLocalDay(thenMs: Long): Boolean {

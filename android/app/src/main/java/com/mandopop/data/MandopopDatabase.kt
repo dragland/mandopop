@@ -53,39 +53,7 @@ interface ScheduleDao {
 
     @Query("SELECT COUNT(*) FROM schedules WHERE suspended = 0")
     suspend fun countLive(): Int
-
-    /**
-     * One row per *distinct known word* with a real review history, for the retrievability
-     * stat.
-     *
-     * The stat's copy says 词, so the math is over words, checked at every layer this stat has
-     * been caught lying at: joined to `known_words` (the curated index — raw card content
-     * still carries radicals and strokes it excludes), grouped by hanzi (multiple cards teach
-     * the same word: three cards of 我 is one word), sentences and sound-only cards excluded,
-     * and MIN over a word's prompt rows — the weakest memory is the honest read of whether the
-     * word is still retrievable. `repetitions > 0` excludes new cards (their interval is a
-     * scheduling default, not a memory); `interval_days > 0` guards the division.
-     */
-    @Query(
-        """
-        SELECT MIN(s.interval_days) AS interval_days, MIN(s.due_time_ms) AS due_time_ms
-        FROM schedules s
-        JOIN card_content c ON c.card_id = s.card_id
-        JOIN known_words k ON k.hanzi = c.hanzi
-        WHERE s.suspended = 0 AND s.repetitions > 0 AND s.interval_days > 0
-          AND c.is_sentence = 0
-          AND s.card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
-        GROUP BY c.hanzi
-        """,
-    )
-    suspend fun liveIntervals(): List<LiveInterval>
 }
-
-/** One live card's memory state, as the SRS knows it: how long the interval, when it lapses. */
-data class LiveInterval(
-    @ColumnInfo(name = "interval_days") val intervalDays: Double,
-    @ColumnInfo(name = "due_time_ms") val dueTimeMs: Long,
-)
 
 /**
  * A card awaiting content: the template that decides how to read it, and the author whose
