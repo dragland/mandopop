@@ -259,8 +259,21 @@ object BriefingEngine {
         val dictionary = dictionary ?: DictionaryRepository(context.applicationContext)
             .also { dictionary = it }
 
-        val plan = BriefingPicker.plan(inputs, known, frontier, ZoneId.systemDefault()) { word ->
+        val basePlan = BriefingPicker.plan(inputs, known, frontier, ZoneId.systemDefault()) { word ->
             dictionary.lookup(word, 1).firstOrNull()?.simplified
+        }
+        // The notification shows ONE sentence — the briefing and the recall prompt are the
+        // same line, not a stack. Feeding the due word into the prompt is what makes that
+        // possible: the model weaves today's context around the word being recalled.
+        val zone = ZoneId.systemDefault()
+        val dueWord = database.cardContentDao()
+            .dueExample(com.mandopop.data.DueCounter.endOfDayMs(LocalDate.now(zone), zone))
+            ?.hanzi
+            ?.takeIf { it in known }
+        val plan = if (basePlan != null && dueWord != null) {
+            basePlan.copy(words = (basePlan.words + dueWord).distinct().take(7))
+        } else {
+            basePlan
         }
         if (plan == null) {
             finish(signature, null, Attempt(inputs.nowMs, summary, null, null, emptyList(),

@@ -55,13 +55,15 @@ interface ScheduleDao {
     suspend fun countLive(): Int
 
     /**
-     * One row per live *word card* with a real review history, for the retrievability stat.
+     * One row per *distinct known word* with a real review history, for the retrievability
+     * stat.
      *
-     * The stat's copy says 词, so the math is over words: joined to content rows with hanzi
-     * (`is_sentence = 0` — a drilled sentence is not a word) and sound-only cards excluded via
-     * the shared predicate, per card. Per-card MIN over prompt rows, because summing rows
-     * double-counted multi-prompt cards and the weaker prompt is the honest read of whether
-     * the word is still retrievable. `repetitions > 0` excludes new cards (their interval is a
+     * The stat's copy says 词, so the math is over words, checked at every layer this stat has
+     * been caught lying at: joined to `known_words` (the curated index — raw card content
+     * still carries radicals and strokes it excludes), grouped by hanzi (multiple cards teach
+     * the same word: three cards of 我 is one word), sentences and sound-only cards excluded,
+     * and MIN over a word's prompt rows — the weakest memory is the honest read of whether the
+     * word is still retrievable. `repetitions > 0` excludes new cards (their interval is a
      * scheduling default, not a memory); `interval_days > 0` guards the division.
      */
     @Query(
@@ -69,10 +71,11 @@ interface ScheduleDao {
         SELECT MIN(s.interval_days) AS interval_days, MIN(s.due_time_ms) AS due_time_ms
         FROM schedules s
         JOIN card_content c ON c.card_id = s.card_id
+        JOIN known_words k ON k.hanzi = c.hanzi
         WHERE s.suspended = 0 AND s.repetitions > 0 AND s.interval_days > 0
-          AND c.hanzi IS NOT NULL AND c.is_sentence = 0
+          AND c.is_sentence = 0
           AND s.card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
-        GROUP BY s.card_id
+        GROUP BY c.hanzi
         """,
     )
     suspend fun liveIntervals(): List<LiveInterval>

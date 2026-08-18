@@ -63,7 +63,7 @@ object DueNotifier {
                             text = briefing.sentence,
                             needsAttention = false,
                             reveal = null,
-                            expandedText = expanded(null, briefing),
+                            expandedText = expanded(briefing.sentence),
                             // Dismissable: at zero due there is nothing to nag about. The delete
                             // intent only records the dismissal — it never re-posts.
                             sticky = false,
@@ -73,29 +73,25 @@ object DueNotifier {
                     }
                 } else {
                     val example = outcome.example
-                    // The cloze upgrade: a studied all-known sentence containing the due word
-                    // beats the bare word as a retrieval prompt. Falls back to the word.
-                    val body = example?.sentence ?: example?.hanzi
-                        ?: "${outcome.liveCount} cards in rotation"
-                    // A briefing that happens to contain the due word would put the recall target
-                    // inside a disambiguating sentence right under the prompt — a soft reveal.
-                    // Drop it from this one view rather than trying to steer the composer.
                     val briefing = BriefingEngine.current
-                        ?.takeIf { example == null || !it.sentence.contains(example.hanzi) }
+                    // ONE sentence, characters only — never a word plus a second sentence
+                    // stacked. Best case the briefing wove today's context around the due word
+                    // (the word rides in its prompt); else the course cloze carries it; else
+                    // whichever single line exists. Reveal still answers for the due word.
+                    val body = when {
+                        briefing != null && example != null &&
+                            briefing.sentence.contains(example.hanzi) -> briefing.sentence
+                        example?.sentence != null -> example.sentence
+                        briefing != null -> briefing.sentence
+                        else -> example?.hanzi ?: "${outcome.liveCount} cards in rotation"
+                    }
                     post(
                         context,
-                        // Compact per the spec sketch — the collapsed line's budget belongs to
-                        // the cloze sentence, not to the word "cards".
                         title = "今天 · ${outcome.dueCount} 到期",
-                        // Characters only. Printing the reading and meaning alongside would turn a
-                        // retrieval prompt into passive exposure, which is the opposite of what
-                        // spaced repetition is for — the answer lives behind the Reveal action.
-                        // The briefing sentence rides in the expanded view; its one glossed word
-                        // is un-learned, so there is no recall for the gloss to defeat.
                         text = body,
                         needsAttention = false,
                         reveal = example?.hanzi,
-                        expandedText = expanded(body, briefing),
+                        expandedText = expanded(body),
                         speak = example?.let { body },
                     )
                 }
@@ -153,16 +149,13 @@ object DueNotifier {
      * to being a prompt rather than a flashcard left face-up.
      */
     fun showAnswer(context: Context, dueCount: Int, hanzi: String, gloss: String) {
-        // The answer is face-up here, so the briefing needs no due-word filter — but it stays in
-        // the expanded view so revealing doesn't make the notification visibly lose a limb.
-        val briefing = BriefingEngine.current
         post(
             context,
             title = "$hanzi — 今天 · $dueCount 到期",
             text = gloss,
             needsAttention = false,
             reveal = null,
-            expandedText = expanded(gloss, briefing),
+            expandedText = expanded(gloss),
             speak = hanzi,
         )
     }
@@ -175,11 +168,14 @@ object DueNotifier {
      * Expanded view: prompt (when due), briefing block, then the score/stats tail — one primary
      * line plus quiet secondaries, never a dashboard. Absent pieces simply don't print.
      */
-    private fun expanded(body: String?, briefing: BriefingEngine.Briefing?): String? {
+    /**
+     * Expanded view: the one primary sentence, then the score/stats tail — never a second
+     * Chinese line, never a dashboard. Absent pieces simply don't print.
+     */
+    private fun expanded(body: String?): String? {
         val tail = listOfNotNull(BriefingEngine.screenScoreLine, StatsTail.line)
         val blocks = listOfNotNull(
             body,
-            briefing?.sentence,
             tail.takeIf { it.isNotEmpty() }?.joinToString("\n"),
         )
         return blocks.takeIf { it.size > 1 || body == null }?.joinToString("\n\n")
