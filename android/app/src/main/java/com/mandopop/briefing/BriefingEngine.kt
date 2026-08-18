@@ -264,12 +264,12 @@ object BriefingEngine {
         }
         // The notification shows ONE sentence — the briefing and the recall prompt are the
         // same line, not a stack. Feeding the due word into the prompt is what makes that
-        // possible: the model weaves today's context around the word being recalled.
-        val zone = ZoneId.systemDefault()
-        val dueWord = database.cardContentDao()
-            .dueExample(com.mandopop.data.DueCounter.endOfDayMs(LocalDate.now(zone), zone))
-            ?.hanzi
-            ?.takeIf { it in known }
+        // possible: the model weaves today's context around the word being recalled. It must
+        // be the SAME word the notification's example resolves to — the display only lets the
+        // briefing carry the line when it contains that word, and feeding the raw top-lapsed
+        // word while the example preferred a cloze-able one meant the two never matched and
+        // the generated sentence could never surface.
+        val dueWord = TraverseSync(context).localExample()?.hanzi?.takeIf { it in known }
         val plan = if (basePlan != null && dueWord != null) {
             basePlan.copy(words = (basePlan.words + dueWord).distinct().take(7))
         } else {
