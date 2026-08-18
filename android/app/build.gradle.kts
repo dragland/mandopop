@@ -117,11 +117,16 @@ dependencies {
     implementation("androidx.savedstate:savedstate:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    ksp("androidx.room:room-compiler:2.7.2")
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // Daily-briefing composer: Gemini Nano through AICore. Inference is on-device by construction
+    // (Private Compute), so the no-content-egress rule holds; the one-time model download is
+    // dev-time bytes in. The verifier, not the model, is what guarantees the output's vocabulary.
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
 
     // Token storage. EncryptedSharedPreferences is deprecated; DataStore + Tink is its
     // replacement, and Tink handles the per-OEM Keystore brittleness that deprecated it.
@@ -143,5 +148,5 @@ dependencies {
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     // A migration that disagrees with Room throws at first database open, not at build time, so
     // the only cheap way to find out is to run it against the exported schemas.
-    androidTestImplementation("androidx.room:room-testing:2.6.1")
+    androidTestImplementation("androidx.room:room-testing:2.7.2")
 }

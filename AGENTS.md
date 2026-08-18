@@ -67,6 +67,19 @@
 - A dead refresh token signs the extension out but **keeps** the mirror and the weave running — expiry is involuntary, and the mirror costs ~940 billed reads to refill; the expiry error is recorded past the account guard so the popup can say so while signed out. Deliberate asymmetry with explicit sign-out, which wipes all sync-derived keys (twice — once before and once after auth removal, closing the in-flight-checkpoint gap). `weaveDisabledSites` survives both: crash stamps are site facts, not account facts. A kept mirror cannot cross accounts: sync state records `accountUid` and a different account's first sync wipes derived data before touching the network. The weave toggle sits outside the account panel for exactly the expiry state.
 - Every sync storage write is fenced on the account that started it (`guardedSet`); the empty-pull wipe guard compares against the *previous rows*, not success bookkeeping. Both close mid-drain windows — do not "simplify" them away.
 
+## Daily Briefing (Android)
+
+- `briefing/` is the pipeline: `CalendarSource` + `NotificationCatcher` + `ScreenTextMonitor` (inputs) -> `BriefingPicker` (code picks) -> `GeminiNanoComposer` / `TemplateComposer` -> `BriefingVerifier` -> `BriefingEngine` -> `DueNotifier` expanded view. Picker, templates, verifier and prompt are pure JVM and unit-tested; keep them free of Android types.
+- **The verifier is the guarantee, not the prompt.** Every candidate sentence — model or template — is segmented with `Segmenter` and every word must be in `known_words` or be the plan's single frontier word. The known-words list never enters a prompt (small models can't obey allowlists; the list only grows); the one retry carries a short "do not use" list, which is followable. The model never grades itself.
+- Notification text is **untrusted input** (a push can carry prompt injection). Code extracts fields; raw notification walls are never pasted into a prompt. The verifier bounds damage regardless.
+- Nothing is persisted: calendar and `getActiveNotifications()` are queried at generation time, the screen snapshot and the briefing cache are in-memory only. Do not add storage here — that is the purity rule, and `weaveDisabledSites` remains the only device-fact precedent.
+- The screen snapshot must exist **before** the shade opens (once open, the active window *is* the shade) — hence the rolling capture on app-switch/content-change in `TextSelectionService`, throttled in `ScreenTextMonitor`. The shade-pull trigger is the SystemUI `TYPE_WINDOW_STATE_CHANGED` event; `TraverseExitWatcher` still treats SystemUI as transparent — the two consumers of that event must not interfere.
+- `NotificationCatcher` is a read-only `NotificationListenerService`: it never posts, cancels, or rewrites anything (listeners cannot rewrite other apps' pushes anyway — measured and rejected in spec.md §2).
+- ML Kit `genai-prompt` ships Kotlin 2.2 metadata — this is why the project is on Kotlin 2.2.10 / KSP 2.2.10-2.0.2 / Room 2.7.2. Do not downgrade any of the three; Room 2.6.1 dies under KSP2 with "unexpected jvm signature V".
+- Gemini Nano runs in AICore under Private Compute: no inference-time network, so no-content-egress holds. The one-time model download is a dev-time cost, triggered from the settings panel.
+- Zero-due now posts a dismissable ambient line (briefing, no `deleteIntent`) instead of cancelling — with no briefing it still cancels. The due-count re-post loop is unchanged.
+- The settings screen's "Daily briefing" panel is the model-audition bench: it shows raw model output and every verifier rejection on purpose. Keep it verbose until the composer decision (Nano vs bundled Gemma/Qwen) is made.
+
 ## UX Gotchas
 
 - Speech prefers `zh-TW`/Meijia.

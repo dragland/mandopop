@@ -59,6 +59,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import com.mandopop.briefing.NotificationCatcher
 import com.mandopop.notification.DueNotifier
 import com.mandopop.service.TextSelectionService
 import com.mandopop.tts.ChineseTtsManager
@@ -74,6 +77,7 @@ import com.mandopop.ui.AttributionFooter
 import com.mandopop.ui.LookupPreview
 import com.mandopop.ui.SectionLabel
 import com.mandopop.ui.ServiceStatusCard
+import com.mandopop.ui.BriefingPanel
 import com.mandopop.ui.SettingsPanel
 import com.mandopop.ui.ToggleRow
 import com.mandopop.ui.TraversePanel
@@ -98,6 +102,16 @@ class MainActivity : ComponentActivity() {
      * coming back — there is no callback for it.
      */
     private var serviceEnabled by mutableStateOf(false)
+
+    // Same resume-time pattern as the accessibility grant: both are given in system settings
+    // with no callback, so they are simply re-read whenever the user comes back.
+    private var notificationListenerEnabled by mutableStateOf(false)
+    private var calendarGranted by mutableStateOf(false)
+
+    private val calendarPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            calendarGranted = granted
+        }
 
     // Sign-in posts the first notification before the permission dialog is answered, so it gets
     // dropped. Re-post once the user grants it, otherwise nothing appears until the worker runs.
@@ -133,6 +147,14 @@ class MainActivity : ComponentActivity() {
                 },
                 requestNotificationPermission = ::requestNotificationPermission,
                 playPreview = { tts.speak("你好") },
+                notificationListenerEnabled = notificationListenerEnabled,
+                calendarGranted = calendarGranted,
+                openNotificationAccessSettings = {
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                },
+                requestCalendarPermission = {
+                    calendarPermission.launch(Manifest.permission.READ_CALENDAR)
+                },
             )
         }
     }
@@ -140,6 +162,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         serviceEnabled = isLookupServiceEnabled()
+        notificationListenerEnabled = NotificationCatcher.isEnabled(this)
+        calendarGranted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_CALENDAR,
+        ) == PackageManager.PERMISSION_GRANTED
         // Rebuild the notification whenever the app is opened. Cheap (local counts only) and it
         // means a stale or swiped-away notification is never more than an app launch from correct,
         // instead of waiting up to 15 minutes for the next periodic sync.
@@ -187,6 +214,10 @@ private fun MandopopSettingsApp(
     openAccessibilitySettings: () -> Unit,
     requestNotificationPermission: () -> Unit,
     playPreview: () -> Unit,
+    notificationListenerEnabled: Boolean,
+    calendarGranted: Boolean,
+    openNotificationAccessSettings: () -> Unit,
+    requestCalendarPermission: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val initial = remember { settingsStore.snapshot() }
@@ -286,6 +317,14 @@ private fun MandopopSettingsApp(
                 TraversePanel(
                     sync = traverseSync,
                     requestNotificationPermission = requestNotificationPermission,
+                )
+
+                SectionLabel("Daily briefing")
+                BriefingPanel(
+                    listenerEnabled = notificationListenerEnabled,
+                    calendarGranted = calendarGranted,
+                    onOpenNotificationAccess = openNotificationAccessSettings,
+                    onRequestCalendar = requestCalendarPermission,
                 )
 
                 AttributionFooter()

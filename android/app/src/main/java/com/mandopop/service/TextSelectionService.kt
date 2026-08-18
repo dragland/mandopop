@@ -3,6 +3,8 @@ package com.mandopop.service
 import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import com.mandopop.briefing.BriefingEngine
+import com.mandopop.briefing.ScreenTextMonitor
 import com.mandopop.dictionary.DictionaryRepository
 import com.mandopop.dictionary.Normalizer
 import com.mandopop.overlay.NoResultPhrases
@@ -25,6 +27,7 @@ class TextSelectionService : AccessibilityService() {
     private var debounceJob: kotlinx.coroutines.Job? = null
     private val exitWatcher = TraverseExitWatcher()
     private var exitSyncJob: kotlinx.coroutines.Job? = null
+    private var captureJob: kotlinx.coroutines.Job? = null
 
     private lateinit var dictionaryRepository: DictionaryRepository
     private lateinit var overlayManager: OverlayManager
@@ -44,7 +47,20 @@ class TextSelectionService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            handleForegroundChange(event.packageName?.toString())
+            val packageName = event.packageName?.toString()
+            if (packageName == SYSTEM_UI_PACKAGE) {
+                // The shade opening is a SystemUI window event — the moment the briefing is
+                // actually looked at, so the moment it is computed. Throttling and the input
+                // cache live in the engine; volume dialogs and the keyguard cost a no-op.
+                BriefingEngine.shadePulled(applicationContext, serviceScope)
+            } else {
+                scheduleScreenCapture(packageName)
+            }
+            handleForegroundChange(packageName)
+            return
+        }
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            maybeCaptureScreen(event.packageName?.toString())
             return
         }
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) return
@@ -91,6 +107,7 @@ class TextSelectionService : AccessibilityService() {
     override fun onDestroy() {
         debounceJob?.cancel()
         exitSyncJob?.cancel()
+        captureJob?.cancel()
         serviceScope.cancel()
         overlayManager.dismiss()
         ttsManager.shutdown()
@@ -132,6 +149,36 @@ class TextSelectionService : AccessibilityService() {
             }
         }
     }
+
+    /**
+     * Rolling snapshot of the foreground app's text, for the shade-pull briefing.
+     *
+     * Captured *before* the shade opens because once it is open the active window is the shade.
+     * A window-state change means a fresh app whose tree needs a moment to settle; content
+     * changes are throttled in [ScreenTextMonitor] so a busy page costs one bounded walk every
+     * few seconds at most.
+     */
+    private fun scheduleScreenCapture(packageName: String?) {
+        if (!isCapturablePackage(packageName)) return
+        captureJob?.cancel()
+        captureJob = serviceScope.launch {
+            delay(CAPTURE_SETTLE_MS)
+            ScreenTextMonitor.capture(rootInActiveWindow, packageName, System.currentTimeMillis())
+        }
+    }
+
+    private fun maybeCaptureScreen(packageName: String?) {
+        if (!isCapturablePackage(packageName)) return
+        val now = System.currentTimeMillis()
+        if (!ScreenTextMonitor.shouldCapture(now)) return
+        ScreenTextMonitor.capture(rootInActiveWindow, packageName, now)
+    }
+
+    private fun isCapturablePackage(packageName: String?): Boolean =
+        !packageName.isNullOrBlank() &&
+            packageName != applicationContext.packageName &&
+            packageName != SYSTEM_UI_PACKAGE &&
+            !packageName.contains("inputmethod")
 
     private suspend fun showLookup(text: String) {
         val settings = settingsStore.snapshot()
@@ -205,5 +252,10 @@ class TextSelectionService : AccessibilityService() {
          * unforced sync reads to decide whether the deck is worth pulling.
          */
         private const val EXIT_SETTLE_MS = 5_000L
+
+        private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+
+        /** A freshly announced window's tree is often still inflating; give it a beat. */
+        private const val CAPTURE_SETTLE_MS = 600L
     }
 }

@@ -208,6 +208,42 @@ interface SyncStateDao {
     suspend fun put(state: SyncStateEntity)
 }
 
+/**
+ * A word in the deck the course has not taught yet — every schedule row for its card is suspended.
+ *
+ * "Frontier" per spec.md §3: the course *will* teach it, so an exposure now has scheduled
+ * re-encounters ahead of it. Course ordering (`Tags`/`graphInfo`) is not mirrored yet, so callers
+ * rank frontier words by relevance to the moment, not by lesson order.
+ */
+data class FrontierWord(
+    @ColumnInfo(name = "hanzi") val hanzi: String,
+    @ColumnInfo(name = "pinyin") val pinyin: String?,
+    @ColumnInfo(name = "english") val english: String?,
+)
+
+@Dao
+interface FrontierDao {
+    /**
+     * Headwords whose lesson is entirely suspended. Sentences are excluded — a frontier *word* can
+     * be introduced with a gloss; a whole unstudied sentence cannot. The sound-only exclusion
+     * mirrors the shared predicate; content rows for those cards are deleted anyway, so the
+     * subquery is belt and braces rather than a second opinion.
+     */
+    @Query(
+        """
+        SELECT c.hanzi AS hanzi, c.pinyin AS pinyin, c.english AS english FROM card_content c
+        WHERE c.hanzi IS NOT NULL AND c.is_sentence = 0
+          AND EXISTS (SELECT 1 FROM schedules s WHERE s.card_id = c.card_id)
+          AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.card_id = c.card_id AND s.suspended = 0)
+        """,
+    )
+    suspend fun frontierWords(): List<FrontierWord>
+
+    /** The whole known-word vocabulary, for the briefing verifier's membership set. */
+    @Query("SELECT hanzi FROM known_words")
+    suspend fun knownHanzi(): List<String>
+}
+
 @Dao
 interface KnownWordDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -245,6 +281,7 @@ abstract class MandopopDatabase : RoomDatabase() {
     abstract fun cardContentDao(): CardContentDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun knownWordDao(): KnownWordDao
+    abstract fun frontierDao(): FrontierDao
 
     companion object {
         @Volatile

@@ -14,6 +14,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.mandopop.MainActivity
 import com.mandopop.R
+import com.mandopop.briefing.BriefingEngine
 import com.mandopop.traverse.DueExample
 import com.mandopop.traverse.SyncOutcome
 import com.mandopop.work.NotificationRefreshReceiver
@@ -43,23 +44,46 @@ object DueNotifier {
 
     fun show(context: Context, outcome: SyncOutcome) {
         when (outcome) {
-            // Clearing the queue clears the notification — reaching zero should feel like finishing,
-            // not like earning a "well done" that sits in the shade afterwards.
-            is SyncOutcome.Success -> if (outcome.dueCount == 0) {
-                cancel(context)
-            } else {
-                val cards = if (outcome.dueCount == 1) "card" else "cards"
-                val example = outcome.example
-                post(
-                    context,
-                    title = "${outcome.dueCount} $cards due today",
-                    // Characters only. Printing the reading and meaning alongside would turn a
-                    // retrieval prompt into passive exposure, which is the opposite of what
-                    // spaced repetition is for — the answer lives behind the Reveal action.
-                    text = example?.hanzi ?: "${outcome.liveCount} cards in rotation",
-                    needsAttention = false,
-                    reveal = example?.hanzi,
-                )
+            // Zero due switches to ambient mode rather than cancelling (spec.md §4): the daily
+            // briefing is worth a line whether or not cards are waiting. With no briefing either,
+            // the old rule holds — clearing the queue clears the notification, and reaching zero
+            // feels like finishing rather than earning a "well done" that sits in the shade.
+            is SyncOutcome.Success -> {
+                val briefing = BriefingEngine.current
+                if (outcome.dueCount == 0) {
+                    if (briefing == null) {
+                        cancel(context)
+                    } else {
+                        post(
+                            context,
+                            title = "All caught up",
+                            text = briefing.sentence,
+                            needsAttention = false,
+                            reveal = null,
+                            expandedText = briefing.expandedBlock(),
+                            // Dismissable: at zero due there is nothing to nag about, so the
+                            // ambient line must not resurrect itself from its own delete intent.
+                            sticky = false,
+                        )
+                    }
+                } else {
+                    val cards = if (outcome.dueCount == 1) "card" else "cards"
+                    val example = outcome.example
+                    val body = example?.hanzi ?: "${outcome.liveCount} cards in rotation"
+                    post(
+                        context,
+                        title = "${outcome.dueCount} $cards due today",
+                        // Characters only. Printing the reading and meaning alongside would turn a
+                        // retrieval prompt into passive exposure, which is the opposite of what
+                        // spaced repetition is for — the answer lives behind the Reveal action.
+                        // The briefing sentence rides in the expanded view; its one glossed word
+                        // is un-learned, so there is no recall for the gloss to defeat.
+                        text = body,
+                        needsAttention = false,
+                        reveal = example?.hanzi,
+                        expandedText = briefing?.let { "$body\n\n${it.expandedBlock()}" },
+                    )
+                }
             }
             // Anything unhealthy needs the user in *our* settings screen, not in Traverse, and must
             // stay dismissable — an undismissable error would be a permanent nuisance.
@@ -134,6 +158,8 @@ object DueNotifier {
         text: String,
         needsAttention: Boolean,
         reveal: String? = null,
+        expandedText: String? = null,
+        sticky: Boolean = !needsAttention,
     ) {
         // Inline rather than extracted: lint cannot follow a permission check through a helper, and
         // a suppression here would go on lying the day the check is removed.
@@ -150,13 +176,13 @@ object DueNotifier {
             .setSmallIcon(R.drawable.ic_notification_due)
             .setContentTitle(title)
             .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText ?: text))
             .setContentIntent(contentIntent(context, openSettings = needsAttention))
-            .setOngoing(!needsAttention)
+            .setOngoing(sticky)
             // Android 14+ allows swiping ongoing notifications away, so persistence is enforced by
             // re-posting from this delete intent rather than by a flag. Only for the due-count
-            // notification — errors stay dismissable.
-            .setDeleteIntent(if (needsAttention) null else dismissIntent(context))
+            // notification — errors and the zero-due ambient line stay dismissable.
+            .setDeleteIntent(if (sticky) dismissIntent(context) else null)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
