@@ -150,13 +150,6 @@ dependencies {
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
-    // Daily-briefing composer: bundled Gemma via LiteRT-LM, running in-process — which is the
-    // whole point: AICore/Gemini Nano refuses inference unless the app is foreground, and the
-    // shade-pull trigger never is. In-process inference is on-device by construction, so the
-    // no-content-egress rule holds; the model file is pushed once at dev time. The verifier,
-    // not the model, is what guarantees the output's vocabulary.
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.0")
-
     // Token storage. EncryptedSharedPreferences is deprecated; DataStore + Tink is its
     // replacement, and Tink handles the per-OEM Keystore brittleness that deprecated it.
     implementation("androidx.datastore:datastore-preferences:1.1.1")

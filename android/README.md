@@ -109,14 +109,13 @@ and regenerated when the notification shade is pulled down.
   accessibility tree. All three are read at generation time and stored nowhere.
 - Composed on-device with slot-filled templates as fallback; every candidate sentence is
   segmented and checked against the known-words index before it is shown. Nothing read
-  from the calendar, the shade, or the screen ever leaves the phone. Two runtimes, picked
-  by the model file in the app's `models/` dir: a `.gguf` runs through llama.cpp
-  (current daily driver: Qwen3.5-2B, 1.34GB, ~3s a sentence) and wins over a `.litertlm`
-  (Gemma via LiteRT-LM). Models are pushed once at dev time — the Daily briefing panel
-  prints the exact `adb push` target when none is installed.
-- The settings panel doubles as a test bench: model status, a "Generate now" button,
-  "Bench ×8" (seeded fixture briefings scored by the verifier — pass rate and latency),
-  and the raw model output with every verifier rejection.
+  from the calendar, the shade, or the screen ever leaves the phone. The model runs
+  through llama.cpp in-process (current daily driver: Qwen3.5-2B, 1.34GB, ~3s a
+  sentence), loading whatever `.gguf` sits in the app's `models/` dir. Models are pushed
+  once at dev time — the Daily briefing panel prints the exact `adb push` target when
+  none is installed.
+- The settings panel shows one quiet Ready line when everything is granted, and setup
+  rows only for what is missing. Briefing failures log to logcat (`MandopopBriefing`).
 
 Lookups run whenever the accessibility service is on. There is deliberately no
 in-app switch for them — the service is the one control, and a second one would
@@ -148,10 +147,9 @@ After each install on a test device:
    confirm the overlay follows the saved setting.
 7. Tap pronunciation repeatedly and confirm speech starts, restarts, and stops
    cleanly when the service is disabled.
-8. Grant Calendar and Notification access in the Daily briefing panel, tap
-   `Generate now`, and confirm a sentence appears with its debug readout; pull
-   down the shade and confirm the notification's expanded view carries it. Clear
-   all due cards and confirm the dismissable 复习完了 ✓ line replaces the
-   due notification. Grant Usage access and confirm 今天学了 N 分钟 joins the stats
-   line; tap Speak and confirm the sentence is spoken; tap Bench ×8 and confirm a
-   pass-rate readout.
+8. Grant Calendar, Notification access and Usage access in the Daily briefing
+   panel and confirm it collapses to a single Ready line. Pull down the shade
+   twice over a minute and confirm a Chinese sentence, the 屏幕 score and the
+   日常中文 stats line appear in the expanded notification; tap Speak and confirm
+   the sentence is spoken. Clear all due cards and confirm the dismissable
+   复习完了 ✓ line replaces the due notification.

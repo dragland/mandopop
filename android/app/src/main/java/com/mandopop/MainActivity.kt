@@ -169,15 +169,11 @@ class MainActivity : ComponentActivity() {
                 notificationListenerConnected = notificationListenerConnected,
                 calendarGranted = calendarGranted,
                 usageAccessGranted = usageAccessGranted,
-                openNotificationAccessSettings = {
-                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                },
+                openNotificationAccessSettings = ::openNotificationAccessSettings,
                 requestCalendarPermission = {
                     calendarPermission.launch(Manifest.permission.READ_CALENDAR)
                 },
-                openUsageAccessSettings = {
-                    startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                },
+                openUsageAccessSettings = ::openUsageAccessSettings,
             )
         }
     }
@@ -232,6 +228,44 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    /**
+     * Special-access grants have no in-app dialog — a settings trip is structural. What CAN be
+     * shortened is the walk inside settings: API 30+ deep-links straight to *this app's*
+     * notification-access toggle instead of the all-apps list. Fallback to the list where the
+     * detail intent isn't handled.
+     */
+    private fun openNotificationAccessSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                .putExtra(
+                    Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                    ComponentName(this, NotificationCatcher::class.java).flattenToString(),
+                )
+            if (detail.resolveActivity(packageManager) != null) {
+                startActivity(detail)
+                return
+            }
+        }
+        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    }
+
+    /** Same idea: newer Settings builds honor a package URI and land on our row directly. */
+    private fun openUsageAccessSettings() {
+        val direct = Intent(
+            Settings.ACTION_USAGE_ACCESS_SETTINGS,
+            Uri.fromParts("package", packageName, null),
+        )
+        if (direct.resolveActivity(packageManager) != null) {
+            try {
+                startActivity(direct)
+                return
+            } catch (ignored: Exception) {
+                // Some builds resolve but reject the data URI; fall through to the list.
+            }
+        }
+        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     }
 }
 

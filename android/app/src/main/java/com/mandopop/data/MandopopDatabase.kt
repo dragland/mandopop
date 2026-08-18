@@ -278,20 +278,7 @@ interface FrontierDao {
     @Query("SELECT hanzi FROM known_words")
     suspend fun knownHanzi(): List<String>
 
-    /** Glossed known words, for the composer bench's fixture prompts. */
-    @Query(
-        """
-        SELECT hanzi, english FROM known_words
-        WHERE english IS NOT NULL ORDER BY hanzi LIMIT :limit
-        """,
-    )
-    suspend fun knownGlosses(limit: Int): List<KnownGloss>
 }
-
-data class KnownGloss(
-    @ColumnInfo(name = "hanzi") val hanzi: String,
-    @ColumnInfo(name = "english") val english: String,
-)
 
 @Dao
 interface KnownWordDao {

@@ -1,17 +1,9 @@
 package com.mandopop.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -19,7 +11,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,18 +21,18 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
 import com.mandopop.briefing.BriefingEngine
 import com.mandopop.briefing.ComposerStatus
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * The daily-briefing section: whether its inputs are granted, whether the on-device model is
- * present, and — the reason this panel is this verbose — a test bench for the model audition.
- * Raw model output and every verifier rejection are shown, because the model decision
- * (is Gemma 3n's Chinese good enough, or step up to Qwen) is made by reading exactly this.
+ * The daily-briefing section, following the accessibility card's lesson: when everything works
+ * it collapses to one quiet Ready line, and setup rows appear only for what is actually
+ * missing. Android structurally requires the per-grant trips — notification access and usage
+ * access are special-access categories with no in-app grant API — so each row deep-links as
+ * close to our own toggle as the OS allows. The briefing itself lives in the notification;
+ * this panel is only its health.
  */
 @Composable
 internal fun BriefingPanel(
@@ -54,274 +45,111 @@ internal fun BriefingPanel(
     onOpenUsageAccess: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
     var modelStatus by remember { mutableStateOf<ComposerStatus?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var briefing by remember { mutableStateOf(BriefingEngine.current) }
-    var attempt by remember { mutableStateOf(BriefingEngine.lastAttempt) }
-    var bench by remember { mutableStateOf<BriefingEngine.BenchResult?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        // composerFor touches the filesystem (models-dir scan, possibly closing a runtime on a
-        // model swap) — not main-thread work.
+        // composerFor touches the filesystem (models-dir scan) — not main-thread work.
         modelStatus = withContext(Dispatchers.Default) {
             BriefingEngine.composerFor(context).status()
         }
     }
 
+    val listenerReady = listenerEnabled && listenerConnected
+    val modelReady = modelStatus is ComposerStatus.Ready || modelStatus is ComposerStatus.NotLoaded
+    val allReady = listenerReady && calendarGranted && usageAccessGranted && modelReady
+
     SettingsPanel {
         Text(
             text = "One short Chinese sentence about your actual day — calendar, notifications " +
-                "and the screen you were just reading — regenerated when you pull down the " +
-                "shade. Composed on-device and verified against your course vocabulary; " +
-                "nothing you read or receive ever leaves the phone.",
+                "and the screen you were just reading — refreshed when you pull down the " +
+                "shade. Composed and verified on this phone; nothing you read or receive " +
+                "ever leaves it.",
             color = MutedText,
             fontSize = 12.sp,
             lineHeight = 17.sp,
         )
 
-        // Three states, because granted-but-unbound (the classic post-crash listener limbo) must
-        // not look like "Ready" — an empty shade and a dead listener are otherwise identical.
-        StatusRow(
-            label = "Notification access",
-            ok = listenerEnabled && listenerConnected,
-            okText = when {
-                !listenerEnabled -> "Not granted"
-                !listenerConnected -> "Granted, not connected — re-toggle access"
-                else -> "Ready"
-            },
-            action = if (!listenerEnabled || !listenerConnected) "Grant" else null,
-            onAction = onOpenNotificationAccess,
-        )
-        StatusRow(
-            label = "Calendar",
-            ok = calendarGranted,
-            action = "Grant",
-            onAction = onRequestCalendar,
-        )
-        // Powers the notification's "min studied" stat, not the briefing itself — but this panel
-        // is where every notification-feeding grant lives, so it sits with its siblings.
-        StatusRow(
-            label = "Usage access",
-            ok = usageAccessGranted,
-            action = "Grant",
-            onAction = onOpenUsageAccess,
-        )
-        // Same lesson as the toggles: a grant request without a stated payoff reads as an
-        // unexplained ask.
-        Text(
-            text = "Powers the 今天学了 N 分钟 line in the notification",
-            color = MutedText,
-            fontSize = 11.sp,
-            lineHeight = 15.sp,
-        )
-        StatusRow(
-            label = "On-device model",
-            ok = modelStatus is ComposerStatus.Ready,
-            okText = when (val status = modelStatus) {
-                is ComposerStatus.Ready -> "${status.model} (${status.backend})"
-                is ComposerStatus.NotLoaded -> "On disk — loads on first generation (~10s)"
-                is ComposerStatus.MissingModel -> "Not installed"
-                is ComposerStatus.Failed -> "Engine failed"
-                null -> "Checking…"
-            },
-            action = null,
-            onAction = {},
-        )
-        // The model is provisioned by hand once — gigabytes have no business in the APK, and the
-        // exact push target is the one thing worth printing.
-        (modelStatus as? ComposerStatus.MissingModel)?.let {
-            Text(
-                text = "adb push ${it.expectedPath}",
-                color = MutedText,
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                fontFamily = FontFamily.Monospace,
+        if (allReady) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("●", color = NeonGreen, fontSize = 12.sp)
+                Spacer(Modifier.width(12.dp))
+                Text("Ready", color = PaleGreen, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                (modelStatus as? ComposerStatus.Ready)?.let {
+                    Text(it.model, color = MutedText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+            return@SettingsPanel
+        }
+
+        // Only what is missing, each with the most direct grant path Android allows.
+        if (!listenerReady) {
+            SetupRow(
+                label = "Notification access",
+                detail = if (listenerEnabled) "Granted, not connected — re-toggle it" else null,
+                onGrant = onOpenNotificationAccess,
             )
         }
-        (modelStatus as? ComposerStatus.Failed)?.let {
-            Text(text = it.message, color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+        if (!calendarGranted) {
+            SetupRow(label = "Calendar", detail = null, onGrant = onRequestCalendar)
         }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        error = null
-                        try {
-                            BriefingEngine.refreshScreenScore(context.applicationContext)
-                            BriefingEngine.refresh(context.applicationContext, force = true)
-                            briefing = BriefingEngine.current
-                            attempt = BriefingEngine.lastAttempt
-                            modelStatus = BriefingEngine.composerFor(context).status()
-                        } catch (cancellation: CancellationException) {
-                            throw cancellation
-                        } catch (failure: Exception) {
-                            error = failure.message ?: "Briefing generation failed"
-                        }
-                        busy = false
-                    }
-                },
-                enabled = !busy,
-                modifier = Modifier.weight(1f).height(46.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = NeonGreen,
-                    contentColor = HackerBlack,
-                ),
-            ) {
-                Text("Generate now", fontWeight = FontWeight.SemiBold)
-            }
-            Spacer(Modifier.width(10.dp))
-            // The quantified audition: N fixture briefings from the user's own vocabulary,
-            // scored by the verifier. Two models bench on identical fixtures (seeded sample).
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        busy = true
-                        error = null
-                        try {
-                            bench = BriefingEngine.bench(context.applicationContext)
-                            modelStatus = BriefingEngine.composerFor(context).status()
-                        } catch (cancellation: CancellationException) {
-                            throw cancellation
-                        } catch (failure: Exception) {
-                            error = failure.message ?: "Bench failed"
-                        }
-                        busy = false
-                    }
-                },
-                enabled = !busy,
-            ) {
-                Text("Bench ×8", color = Cyan, fontSize = 13.sp)
-            }
-            if (busy) {
-                Spacer(Modifier.width(6.dp))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    color = NeonGreen,
-                    strokeWidth = 2.dp,
-                )
-            }
+        if (!usageAccessGranted) {
+            SetupRow(
+                label = "Usage access",
+                detail = "For the 今天学了 N 分钟 line",
+                onGrant = onOpenUsageAccess,
+            )
         }
-
-        bench?.let { b ->
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        when (val status = modelStatus) {
+            is ComposerStatus.MissingModel -> {
+                SetupRow(label = "On-device model", detail = "Not installed", onGrant = null)
                 Text(
-                    text = "bench: ${b.passed}/${b.total} verified · avg ${b.avgMs}ms",
-                    color = if (b.total > 0 && b.passed >= b.total / 2) NeonGreen else ErrorRed,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                b.lines.forEach { line ->
-                    Text(
-                        text = line,
-                        color = if (line.startsWith("✓")) MutedText else ErrorRed,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-            }
-        }
-
-        briefing?.let {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = it.sentence,
-                    color = NeonGreen,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Serif,
-                )
-                it.frontier?.takeIf { f -> it.sentence.contains(f.hanzi) }?.let { f ->
-                    Text(
-                        text = listOfNotNull(f.hanzi, f.pinyin, f.english).joinToString(" — "),
-                        color = Cyan,
-                        fontSize = 13.sp,
-                    )
-                }
-                Text(
-                    text = when (it.source) {
-                        BriefingEngine.Source.MODEL -> "composed by the on-device model"
-                        BriefingEngine.Source.TEMPLATE -> "template fallback"
-                    },
+                    text = "adb push ${status.expectedPath}",
                     color = MutedText,
                     fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    fontFamily = FontFamily.Monospace,
                 )
             }
-        }
-
-        // The audition readout. Everything the pipeline did, verbatim — a rejected model output
-        // is the single most informative artifact this screen can show.
-        attempt?.let { a ->
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                DebugLine("inputs", a.inputsSummary)
-                a.gist?.let { DebugLine("gist", it) }
-                a.promptWords?.let { DebugLine("words", it.joinToString(" ")) }
-                a.modelOutputs.forEachIndexed { i, raw ->
-                    DebugLine("model #${i + 1}", raw)
-                }
-                a.rejections.forEach { DebugLine("rejected", it, ErrorRed) }
-                DebugLine("outcome", a.outcome)
+            is ComposerStatus.Failed -> {
+                SetupRow(label = "On-device model", detail = "Engine failed — will retry", onGrant = null)
+                Text(
+                    text = status.message,
+                    color = ErrorRed,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
             }
-        }
-
-        error?.let {
-            Text(text = it, color = ErrorRed, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+            else -> Unit
         }
     }
 }
 
 @Composable
-private fun StatusRow(
-    label: String,
-    ok: Boolean,
-    action: String?,
-    onAction: () -> Unit,
-    okText: String? = null,
-) {
-    val statusText = okText ?: if (ok) "Ready" else "Not granted"
+private fun SetupRow(label: String, detail: String?, onGrant: (() -> Unit)?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // Same lesson as ToggleRow: merged semantics, or TalkBack reads "black circle" and
-            // two context-free "Grant" buttons.
             .semantics(mergeDescendants = true) {
-                contentDescription = "$label. $statusText"
+                contentDescription = listOfNotNull(label, detail).joinToString(". ")
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("●", color = if (ok) NeonGreen else MutedText, fontSize = 11.sp)
+        Text("●", color = MutedText, fontSize = 11.sp)
         Spacer(Modifier.width(10.dp))
-        Text(text = label, color = PaleGreen, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Text(
-            text = statusText,
-            color = MutedText,
-            fontSize = 12.sp,
-        )
-        if (!ok && action != null) {
-            Spacer(Modifier.width(6.dp))
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Text(text = label, color = PaleGreen, fontSize = 14.sp)
+            detail?.let {
+                Text(text = it, color = MutedText, fontSize = 11.sp, lineHeight = 15.sp)
+            }
+        }
+        onGrant?.let {
             TextButton(
-                onClick = onAction,
-                modifier = Modifier.semantics { contentDescription = "$action $label" },
+                onClick = it,
+                modifier = Modifier.semantics { contentDescription = "Grant $label" },
             ) {
-                Text(action, color = NeonGreen, fontSize = 13.sp)
+                Text("Grant", color = NeonGreen, fontSize = 13.sp)
             }
         }
     }
-}
-
-@Composable
-private fun DebugLine(tag: String, value: String, color: androidx.compose.ui.graphics.Color = MutedText) {
-    Text(
-        text = "$tag: $value",
-        color = color,
-        fontSize = 11.sp,
-        lineHeight = 15.sp,
-        fontFamily = FontFamily.Monospace,
-    )
 }

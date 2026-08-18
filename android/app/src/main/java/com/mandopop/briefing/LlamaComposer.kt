@@ -7,14 +7,25 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * GGUF models in-process through llama.cpp (vendored at `android/third_party/llama.cpp`,
- * pinned; bridge in `src/main/cpp/llama_bridge.cpp`). This is the path to the Qwen family —
- * the strongest Chinese per parameter — which ships in no Google-runtime format. CPU-only,
- * KleidiAI kernels; a 2B Q4 clears the one-sentence latency budget without touching the
- * GPU-driver lottery. Same rules as its sibling: loads lazily on first generation, stays
- * resident, never touches the network.
+ * What the model row and the engine need to know about the runtime. MissingModel carries the
+ * push path because that is the entire installation UI.
  */
-class LlamaComposer(private val appContext: Context) : SentenceComposer {
+sealed interface ComposerStatus {
+    data class MissingModel(val expectedPath: String) : ComposerStatus
+    data object NotLoaded : ComposerStatus
+    data class Ready(val backend: String, val model: String) : ComposerStatus
+    data class Failed(val message: String) : ComposerStatus
+}
+
+/**
+ * GGUF models in-process through llama.cpp (vendored at `android/third_party/llama.cpp`,
+ * pinned; bridge in `src/main/cpp/llama_bridge.cpp`). The Qwen family — the strongest Chinese
+ * per parameter — ships in no Google-runtime format, which is why this runtime exists; the
+ * LiteRT/Gemma alternate was auditioned and deleted (git history has it). CPU-only, KleidiAI
+ * kernels; a 2B Q4 clears the one-sentence latency budget without touching the GPU-driver
+ * lottery. Loads lazily on first generation, stays resident, never touches the network.
+ */
+class LlamaComposer(private val appContext: Context) {
 
     /**
      * A plain monitor, not a coroutine mutex, because [close] must be able to take it from
@@ -32,7 +43,7 @@ class LlamaComposer(private val appContext: Context) : SentenceComposer {
     @Volatile
     private var lastError: String? = null
 
-    override fun status(): ComposerStatus {
+    fun status(): ComposerStatus {
         if (!nativeLibraryLoaded) return ComposerStatus.Failed("native library failed to load")
         if (loaded) return ComposerStatus.Ready("llama.cpp/CPU", loadedModel ?: "?")
         lastError?.let { return ComposerStatus.Failed(it) }
@@ -42,7 +53,7 @@ class LlamaComposer(private val appContext: Context) : SentenceComposer {
         return ComposerStatus.NotLoaded
     }
 
-    override suspend fun generate(prompt: String): String = withContext(Dispatchers.Default) {
+    suspend fun generate(prompt: String): String = withContext(Dispatchers.Default) {
         // The whole call sits under the lock: the native side is a single model+context with
         // no locking of its own.
         synchronized(runtimeLock) {
@@ -56,7 +67,7 @@ class LlamaComposer(private val appContext: Context) : SentenceComposer {
         }
     }
 
-    override fun close() {
+    fun close() {
         synchronized(runtimeLock) {
             if (loaded) {
                 nativeUnload()

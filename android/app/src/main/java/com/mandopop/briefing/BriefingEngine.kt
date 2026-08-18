@@ -2,7 +2,6 @@ package com.mandopop.briefing
 
 import android.content.Context
 import android.util.Log
-import com.mandopop.data.FrontierWord
 import com.mandopop.data.MandopopDatabase
 import com.mandopop.dictionary.DictionaryRepository
 import com.mandopop.notification.DueNotifier
@@ -16,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -26,10 +26,10 @@ import java.time.ZoneId
  * sentence is looked at, so that is when it is made — fresh exactly at glance time, ~zero cost
  * otherwise. Results are cached in memory keyed by an input signature; clearing a notification,
  * an event passing, the local day rolling over, or the vocabulary growing regenerates — an
- * unchanged moment does not. Nothing is persisted: after process death the briefing is simply
- * absent until the next pull. Every attempt's raw material is kept on [lastAttempt] because the
- * whole point of this build is auditioning the composer — a silently discarded model output
- * would make the audition undebuggable.
+ * unchanged moment does not, and generation is additionally floored at one per five minutes
+ * because SystemUI announces unlocks and volume presses too. Nothing is persisted: after
+ * process death the briefing is simply absent until the next pull. Failures log loudly
+ * (rejections included) — this device's only debugger is logcat.
  */
 object BriefingEngine {
     private const val TAG = "MandopopBriefing"
@@ -42,6 +42,8 @@ object BriefingEngine {
     /** Floor between generations, independent of input churn — the battery knob. */
     private const val REGEN_MIN_INTERVAL_MS = 5 * 60 * 1000L
 
+    private const val SCORE_FRESH_MS = 15 * 60 * 1000L
+
     enum class Source { MODEL, TEMPLATE }
 
     /**
@@ -49,25 +51,12 @@ object BriefingEngine {
      * gloss for the frontier word was tried and killed: `known_words` mirrors Traverse, and
      * this user's Chinese predates the course, so "un-learned by the deck" routinely meant
      * "known to the human" — and an English gloss beside a recallable word wrecks the recall.
-     * The frontier word still appears in-sentence, unglossed (noticing without the answer);
-     * [frontier] stays on the object for the settings bench, which is allowed to show answers.
+     * A frontier word may still appear in-sentence, unglossed (noticing without the answer).
      */
     data class Briefing(
         val sentence: String,
-        val frontier: FrontierWord?,
         val source: Source,
         val generatedAtMs: Long,
-    )
-
-    /** Everything the settings screen needs to judge the composer. */
-    data class Attempt(
-        val atMs: Long,
-        val inputsSummary: String,
-        val gist: String?,
-        val promptWords: List<String>?,
-        val modelOutputs: List<String>,
-        val rejections: List<String>,
-        val outcome: String,
     )
 
     @Volatile
@@ -81,45 +70,11 @@ object BriefingEngine {
     val current: Briefing?
         get() = stored?.takeIf { sameLocalDay(it.generatedAtMs) }
 
-    @Volatile
-    var lastAttempt: Attempt? = null
-        private set
-
     private val mutex = Mutex()
     private var lastSignature: Int? = null
 
-
-    private var composer: SentenceComposer? = null
+    private var composer: LlamaComposer? = null
     private var composerKey: String? = null
-
-    /**
-     * The composer for whatever model actually sits on the device: `.gguf` → llama.cpp,
-     * else `.litertlm` → LiteRT-LM (gguf wins when both are present — the smaller/faster
-     * candidate is the one under audition). Re-scanned each call so swapping models is an adb
-     * push plus one regeneration; on a switch the previous runtime is closed first, because
-     * two resident models is how a 16GB phone stops being one.
-     */
-    @Synchronized
-    fun composerFor(context: Context): SentenceComposer {
-        val appContext = context.applicationContext
-        // The app must own this dir: one created by `adb shell mkdir` belongs to `shell` and the
-        // app's uid cannot traverse it — the files look missing while sitting right there.
-        val dir = java.io.File(appContext.getExternalFilesDir(null), "models").apply { mkdirs() }
-        val gguf = dir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") }
-            ?.minByOrNull { it.name }
-        // Identity includes mtime+size: a same-name re-push must rebuild the composer (a fresh
-        // load, and a fresh chance after a transient init failure) — keying on the name alone
-        // silently kept stale weights resident. Note llama.cpp mmaps the file, so overwriting
-        // a *currently loaded* model in place is still undefined until this rescan runs; push
-        // under a new name when in doubt.
-        val key = gguf?.let { "gguf:${it.name}:${it.lastModified()}:${it.length()}" } ?: "litert"
-        if (key != composerKey) {
-            composer?.close()
-            composer = if (gguf != null) LlamaComposer(appContext) else GemmaComposer(appContext)
-            composerKey = key
-        }
-        return composer!!
-    }
 
     @Volatile
     private var lastShadeMs = 0L
@@ -142,7 +97,29 @@ object BriefingEngine {
             ?.takeIf { System.currentTimeMillis() - it.second < SCORE_FRESH_MS }
             ?.first
 
-    private const val SCORE_FRESH_MS = 15 * 60 * 1000L
+    /**
+     * One llama.cpp composer per process, rebuilt when the model file's identity changes —
+     * name, mtime and size, so a re-push reloads (and a transient init failure gets a fresh
+     * chance) instead of stale weights staying silently resident. llama.cpp mmaps the file, so
+     * overwriting a *currently loaded* model in place is still undefined until this rescan
+     * runs; push under a new name when in doubt. The previous runtime is closed first.
+     */
+    @Synchronized
+    fun composerFor(context: Context): LlamaComposer {
+        val appContext = context.applicationContext
+        // The app must own this dir: one created by `adb shell mkdir` belongs to `shell` and
+        // the app's uid cannot traverse it — the files look missing while sitting right there.
+        val dir = File(appContext.getExternalFilesDir(null), "models").apply { mkdirs() }
+        val gguf = dir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") }
+            ?.minByOrNull { it.name }
+        val key = gguf?.let { "${it.name}:${it.lastModified()}:${it.length()}" } ?: "none"
+        if (key != composerKey) {
+            composer?.close()
+            composer = LlamaComposer(appContext)
+            composerKey = key
+        }
+        return composer!!
+    }
 
     /**
      * The briefing the zero-due ambient line may show: none if the user dismissed this exact
@@ -227,12 +204,12 @@ object BriefingEngine {
     /**
      * Regenerates if the inputs moved (or [force]). Returns whether anything changed — callers
      * repost the notification only on true, so an idle shade-pull never flickers it. Hops to
-     * [Dispatchers.Default] itself: the settings panel calls this from the main dispatcher, and
-     * the calendar provider query and shade snapshot must not run there.
+     * [Dispatchers.Default] itself: the calendar provider query and shade snapshot must not
+     * run on main.
      */
     suspend fun refresh(context: Context, force: Boolean = false): Boolean =
         withContext(Dispatchers.Default) {
-            // Callers without a resolved example in hand (the settings panel) pay one walk here.
+            // Callers without a resolved example in hand pay one cloze walk here.
             val dueWord = runCatching { TraverseSync(context).localExample()?.hanzi }.getOrNull()
             mutex.withLock { refreshLocked(context, force, dueWord) }
         }
@@ -248,7 +225,7 @@ object BriefingEngine {
         // Generation is the battery cost — SystemUI announces volume presses and every unlock,
         // not just shades, and an active phone's notification set churns enough that the input
         // signature alone regenerated dozens of times a day (audited at ~5-8% of the battery).
-        // Today's briefing staying put for a few minutes is fine; force (the panel) bypasses.
+        // Today's briefing staying put for a few minutes is fine; force bypasses.
         stored?.let {
             if (!force && sameLocalDay(it.generatedAtMs) &&
                 System.currentTimeMillis() - it.generatedAtMs < REGEN_MIN_INTERVAL_MS
@@ -265,33 +242,23 @@ object BriefingEngine {
         val database = MandopopDatabase.get(context)
         // The signature folds in the local date (yesterday's "今天…" must not survive the
         // rollover just because the shade looks the same) and the vocabulary size (the
-        // "no known words yet" outcome must retry once a sync has landed, not wait for an
-        // input to move).
+        // no-known-words outcome must retry once a sync has landed, not wait for an input
+        // to move).
         val knownCount = database.knownWordDao().count()
         val today = LocalDate.now(ZoneId.systemDefault())
         val signature = (inputs.signature() * 31 + knownCount) * 31 + today.hashCode()
         if (!force && signature == lastSignature) return false
 
-        val shadeState = when {
-            !NotificationCatcher.isEnabled(context) -> "access off"
-            !NotificationCatcher.isConnected() -> "unbound"
-            else -> "${inputs.notifications.size}"
-        }
-        val summary = "${inputs.events.size} events · $shadeState notifications" +
-            " · screen=${inputs.screen?.packageName ?: "none"}"
-
         val known = database.frontierDao().knownHanzi().toHashSet()
         if (known.isEmpty()) {
-            finish(signature, null, Attempt(inputs.nowMs, summary, null, null, emptyList(),
-                emptyList(), "no known words yet — sign in and sync first"))
+            finish(signature, null, "no known words yet — sign in and sync first", emptyList())
             return true
         }
         // A word can sit on two cards — one live (so it is known) and one still-suspended (so
         // it matches the frontier query). The frontier's whole meaning is "un-learned"; the
-        // filter keeps the prompt's introduction slot honest (and the bench's gloss line safe).
+        // filter keeps the prompt's introduction slot honest.
         val frontier = database.frontierDao().frontierWords().filterNot { it.hanzi in known }
 
-        val modelOutputs = mutableListOf<String>()
         val rejections = mutableListOf<String>()
         val dictionary = DictionaryRepository.shared(context)
 
@@ -309,8 +276,7 @@ object BriefingEngine {
             basePlan
         }
         if (plan == null) {
-            finish(signature, null, Attempt(inputs.nowMs, summary, null, null, emptyList(),
-                emptyList(), "no relevant known vocabulary in today's inputs"))
+            finish(signature, null, "no relevant known vocabulary in today's inputs", emptyList())
             return true
         }
 
@@ -321,37 +287,34 @@ object BriefingEngine {
 
         val model = composerFor(context)
         val modelStatus = model.status()
-        when {
-            modelStatus is ComposerStatus.MissingModel ->
-                rejections += "model not installed — adb push to ${modelStatus.expectedPath}"
-            else -> {
-                if (modelStatus is ComposerStatus.Failed) {
-                    // Noted but not terminal: generate() re-attempts the load, so a transient
-                    // init failure (driver refusal at boot, memory pressure mid-load) cannot
-                    // latch the model off for the process lifetime behind a silent template.
-                    rejections += "previous engine failure, retrying: ${modelStatus.message}"
+        if (modelStatus is ComposerStatus.MissingModel) {
+            rejections += "model not installed — adb push to ${modelStatus.expectedPath}"
+        } else {
+            if (modelStatus is ComposerStatus.Failed) {
+                // Noted but not terminal: generate() re-attempts the load, so a transient
+                // init failure (driver refusal at boot, memory pressure mid-load) cannot
+                // latch the model off for the process lifetime behind a silent template.
+                rejections += "previous engine failure, retrying: ${modelStatus.message}"
+            }
+            var avoid = emptyList<String>()
+            for (round in 0 until MODEL_ROUNDS) {
+                val raw = try {
+                    model.generate(BriefingPrompt.build(plan.gist, plan.words, avoid))
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (error: Exception) {
+                    rejections += "model error: ${error.message ?: error::class.simpleName}"
+                    break
                 }
-                var avoid = emptyList<String>()
-                for (round in 0 until MODEL_ROUNDS) {
-                    val raw = try {
-                        model.generate(BriefingPrompt.build(plan.gist, plan.words, avoid))
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (error: Exception) {
-                        rejections += "model error: ${error.message ?: error::class.simpleName}"
+                val sentence = BriefingPrompt.extractSentence(raw)
+                when (val verdict = verdictOf(sentence)) {
+                    is BriefingVerifier.Verdict.Pass -> {
+                        result = Briefing(sentence, Source.MODEL, inputs.nowMs)
                         break
                     }
-                    modelOutputs += raw
-                    val sentence = BriefingPrompt.extractSentence(raw)
-                    when (val verdict = verdictOf(sentence)) {
-                        is BriefingVerifier.Verdict.Pass -> {
-                            result = Briefing(sentence, plan.frontier, Source.MODEL, inputs.nowMs)
-                            break
-                        }
-                        is BriefingVerifier.Verdict.Fail -> {
-                            rejections += "model: ${verdict.reason}"
-                            avoid = (avoid + verdict.unknownWords).distinct().take(6)
-                        }
+                    is BriefingVerifier.Verdict.Fail -> {
+                        rejections += "model: ${verdict.reason}"
+                        avoid = (avoid + verdict.unknownWords).distinct().take(6)
                     }
                 }
             }
@@ -361,10 +324,11 @@ object BriefingEngine {
             for (candidate in TemplateComposer.candidates(plan)) {
                 when (val verdict = verdictOf(candidate)) {
                     is BriefingVerifier.Verdict.Pass -> {
-                        result = Briefing(candidate, plan.frontier, Source.TEMPLATE, inputs.nowMs)
+                        result = Briefing(candidate, Source.TEMPLATE, inputs.nowMs)
                         break
                     }
-                    is BriefingVerifier.Verdict.Fail -> rejections += "template \"$candidate\": ${verdict.reason}"
+                    is BriefingVerifier.Verdict.Fail ->
+                        rejections += "template \"$candidate\": ${verdict.reason}"
                 }
             }
         }
@@ -372,19 +336,12 @@ object BriefingEngine {
         finish(
             signature,
             result,
-            Attempt(
-                atMs = inputs.nowMs,
-                inputsSummary = summary,
-                gist = plan.gist,
-                promptWords = plan.words,
-                modelOutputs = modelOutputs,
-                rejections = rejections,
-                outcome = when (result?.source) {
-                    Source.MODEL -> "model composed it"
-                    Source.TEMPLATE -> "template fallback"
-                    null -> "nothing verified — no briefing shown"
-                },
-            ),
+            when (result?.source) {
+                Source.MODEL -> "model composed it"
+                Source.TEMPLATE -> "template fallback"
+                null -> "nothing verified — no briefing shown"
+            },
+            rejections,
         )
         return true
     }
@@ -404,87 +361,27 @@ object BriefingEngine {
         )
     }
 
-    data class BenchResult(val passed: Int, val total: Int, val avgMs: Long, val lines: List<String>)
-
-    /**
-     * The quantified audition (spec.md §6): the segmenter + known-words check *is* an automated
-     * evaluator, so run the composer over fixture prompts drawn from the user's own vocabulary
-     * and score pass rate and latency instead of eyeballing single generations. Deterministic
-     * sample (seeded shuffle) so two models bench on identical fixtures.
-     */
-    suspend fun bench(context: Context, rounds: Int = 8): BenchResult =
-        withContext(Dispatchers.Default) {
-            mutex.withLock { benchLocked(context, rounds) }
-        }
-
-    private suspend fun benchLocked(context: Context, rounds: Int): BenchResult {
-        val database = MandopopDatabase.get(context)
-        val known = database.frontierDao().knownHanzi().toHashSet()
-        if (known.isEmpty()) return BenchResult(0, 0, 0, listOf("no known words — sync first"))
-        val samples = database.frontierDao().knownGlosses(200)
-            .filter { it.hanzi.length in 2..4 }
-            .shuffled(kotlin.random.Random(BENCH_SEED))
-            .take(rounds)
-        if (samples.isEmpty()) return BenchResult(0, 0, 0, listOf("no glossed words to bench with"))
-
-        val model = composerFor(context)
-        val status = model.status()
-        if (status is ComposerStatus.MissingModel) {
-            return BenchResult(0, 0, 0, listOf("model not installed: ${status.expectedPath}"))
-        }
-        val dictionary = DictionaryRepository.shared(context)
-
-        val lines = mutableListOf<String>()
-        var passed = 0
-        var totalMs = 0L
-        for (sample in samples) {
-            val gist = "a reminder about \"${sample.english.take(40)}\""
-            val words = listOfNotNull("今天".takeIf { it in known }, sample.hanzi)
-            val startedAt = System.currentTimeMillis()
-            val raw = try {
-                model.generate(BriefingPrompt.build(gist, words))
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (error: Exception) {
-                lines += "✗ ${sample.hanzi}: ${error.message ?: "generation error"}"
-                continue
-            }
-            val elapsed = System.currentTimeMillis() - startedAt
-            totalMs += elapsed
-            val sentence = BriefingPrompt.extractSentence(raw)
-            when (val result = verdict(sentence, known, null, dictionary)) {
-                is BriefingVerifier.Verdict.Pass -> {
-                    passed++
-                    lines += "✓ ${elapsed}ms $sentence"
-                }
-                is BriefingVerifier.Verdict.Fail ->
-                    lines += "✗ ${elapsed}ms ${result.reason} ← ${sentence.take(30)}"
-            }
-            // The bench is read over adb as much as on-screen; raw output included because a
-            // rejection line alone can't show *how* the model failed.
-            Log.i(TAG, "bench: ${lines.last()} | raw: ${raw.take(200)}")
-        }
-        val timed = lines.count { it.startsWith("✓") || it.contains("ms ") }
-        return BenchResult(passed, samples.size, if (timed > 0) totalMs / timed else 0, lines)
-    }
-
-    private const val BENCH_SEED = 42
-
     private fun sameLocalDay(thenMs: Long): Boolean {
         val zone = ZoneId.systemDefault()
         return java.time.Instant.ofEpochMilli(thenMs).atZone(zone).toLocalDate() ==
             LocalDate.now(zone)
     }
 
-    private fun finish(signature: Int, briefing: Briefing?, attempt: Attempt) {
+    private fun finish(
+        signature: Int,
+        briefing: Briefing?,
+        outcome: String,
+        rejections: List<String>,
+    ) {
         lastSignature = signature
         stored = briefing
-        lastAttempt = attempt
+        // Loud on purpose: logcat is this device's only debugger, and a silently absent
+        // briefing is indistinguishable from a broken one.
         if (briefing == null) {
-            Log.w(TAG, "no briefing: ${attempt.outcome}; rejections=${attempt.rejections}")
+            Log.w(TAG, "no briefing: $outcome; rejections=$rejections")
         } else {
-            Log.i(TAG, "briefing [${briefing.source}] ${briefing.sentence}")
+            Log.i(TAG, "briefing [$outcome] ${briefing.sentence}" +
+                if (rejections.isEmpty()) "" else " (after $rejections)")
         }
     }
-
 }
