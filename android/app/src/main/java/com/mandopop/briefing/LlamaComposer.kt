@@ -12,7 +12,7 @@ import java.io.File
  */
 sealed interface ComposerStatus {
     data class MissingModel(val expectedPath: String) : ComposerStatus
-    data object NotLoaded : ComposerStatus
+    data class NotLoaded(val model: String) : ComposerStatus
     data class Ready(val backend: String, val model: String) : ComposerStatus
     data class Failed(val message: String) : ComposerStatus
 }
@@ -42,10 +42,9 @@ class LlamaComposer(private val appContext: Context) {
         if (!nativeLibraryLoaded) return ComposerStatus.Failed("native library failed to load")
         if (loaded) return ComposerStatus.Ready("llama.cpp/CPU", loadedModel ?: "?")
         lastError?.let { return ComposerStatus.Failed(it) }
-        if (modelFile() == null) {
-            return ComposerStatus.MissingModel(File(modelDir(), "<model>.gguf").absolutePath)
-        }
-        return ComposerStatus.NotLoaded
+        val file = modelFile()
+            ?: return ComposerStatus.MissingModel(File(modelDir(), "<model>.gguf").absolutePath)
+        return ComposerStatus.NotLoaded(displayName(file.name))
     }
 
     suspend fun generate(prompt: String): String = withContext(Dispatchers.Default) {
@@ -82,7 +81,7 @@ class LlamaComposer(private val appContext: Context) {
             throw IllegalStateException(lastError)
         }
         loaded = true
-        loadedModel = file.name.removeSuffix(".gguf")
+        loadedModel = displayName(file.name)
         lastError = null
         Log.i(TAG, "engine loaded: ${file.name} on llama.cpp/CPU")
     }
@@ -97,6 +96,14 @@ class LlamaComposer(private val appContext: Context) {
 
     companion object {
         private const val TAG = "MandopopBriefing"
+
+        /** "Qwen3.5-2B-UD-Q4_K_XL.gguf" -> "Qwen3.5 2B": model identity for the UI, quant noise off. */
+        internal fun displayName(fileName: String): String = fileName
+            .removeSuffix(".gguf")
+            .split('-')
+            .takeWhile { !it.matches(Regex("(?i)UD|I?Q\\d.*|F16|BF16|K|XL|XS|S|M|L|GGUF")) }
+            .joinToString(" ")
+            .ifEmpty { fileName.removeSuffix(".gguf") }
 
         /** Big/mid cores only — spinning the little cores up slows the matmuls down. */
         private const val THREADS = 4

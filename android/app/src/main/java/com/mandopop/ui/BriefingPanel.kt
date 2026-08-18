@@ -61,10 +61,17 @@ internal fun BriefingToggle(
         }
     }
 
+    // Named from the pushed .gguf, not hardcoded — a model swap updates the line.
+    val modelName = when (val status = modelStatus) {
+        is ComposerStatus.Ready -> status.model
+        is ComposerStatus.NotLoaded -> status.model
+        else -> null
+    }
     ToggleRow(
         icon = R.drawable.ic_notification_due,
         label = "Daily briefing",
-        supporting = "A Chinese sentence about your day, in the notification shade",
+        supporting = "A Chinese sentence about your day, in the notification shade" +
+            (modelName?.let { " · via $it" } ?: ""),
         checked = enabled,
         onCheckedChange = onEnabledChange,
     )
