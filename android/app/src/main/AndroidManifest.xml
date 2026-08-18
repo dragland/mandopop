@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Learning-state sync only. No user content leaves the device (see AGENTS.md). -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -12,6 +13,15 @@
       composed and verified entirely on-device.
     -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+
+    <!--
+      "Minutes studied today" in the notification's stats line: foreground time in study apps,
+      read from UsageStats at glance time. Special-access grant (Settings > Usage access), so
+      lint's system-app warning is expected and suppressed.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <!--
       Package visibility filtering (Android 11+) hides other apps by default, which would make

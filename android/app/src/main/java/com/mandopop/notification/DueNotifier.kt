@@ -63,17 +63,21 @@ object DueNotifier {
                             text = briefing.sentence,
                             needsAttention = false,
                             reveal = null,
-                            expandedText = briefing.expandedBlock(),
+                            expandedText = expanded(null, briefing),
                             // Dismissable: at zero due there is nothing to nag about. The delete
                             // intent only records the dismissal — it never re-posts.
                             sticky = false,
                             deleteAction = NotificationRefreshReceiver.ACTION_AMBIENT_DISMISSED,
+                            speak = briefing.sentence,
                         )
                     }
                 } else {
                     val cards = if (outcome.dueCount == 1) "card" else "cards"
                     val example = outcome.example
-                    val body = example?.hanzi ?: "${outcome.liveCount} cards in rotation"
+                    // The cloze upgrade: a studied all-known sentence containing the due word
+                    // beats the bare word as a retrieval prompt. Falls back to the word.
+                    val body = example?.sentence ?: example?.hanzi
+                        ?: "${outcome.liveCount} cards in rotation"
                     // A briefing that happens to contain the due word would put the recall target
                     // inside a disambiguating sentence right under the prompt — a soft reveal.
                     // Drop it from this one view rather than trying to steer the composer.
@@ -90,7 +94,8 @@ object DueNotifier {
                         text = body,
                         needsAttention = false,
                         reveal = example?.hanzi,
-                        expandedText = briefing?.let { "$body\n\n${it.expandedBlock()}" },
+                        expandedText = expanded(body, briefing),
+                        speak = example?.let { body },
                     )
                 }
             }
@@ -157,12 +162,27 @@ object DueNotifier {
             text = gloss,
             needsAttention = false,
             reveal = null,
-            expandedText = briefing?.let { "$gloss\n\n${it.expandedBlock()}" },
+            expandedText = expanded(gloss, briefing),
+            speak = hanzi,
         )
     }
 
     fun cancel(context: Context) {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+    }
+
+    /**
+     * Expanded view: prompt (when due), briefing block, then the score/stats tail — one primary
+     * line plus quiet secondaries, never a dashboard. Absent pieces simply don't print.
+     */
+    private fun expanded(body: String?, briefing: BriefingEngine.Briefing?): String? {
+        val tail = listOfNotNull(BriefingEngine.screenScoreLine, StatsTail.line)
+        val blocks = listOfNotNull(
+            body,
+            briefing?.expandedBlock(),
+            tail.takeIf { it.isNotEmpty() }?.joinToString("\n"),
+        )
+        return blocks.takeIf { it.size > 1 || body == null }?.joinToString("\n\n")
     }
 
     private fun post(
@@ -174,6 +194,7 @@ object DueNotifier {
         expandedText: String? = null,
         sticky: Boolean = !needsAttention,
         deleteAction: String? = if (needsAttention) null else NotificationRefreshReceiver.ACTION_DISMISSED,
+        speak: String? = null,
     ) {
         // Inline rather than extracted: lint cannot follow a permission check through a helper, and
         // a suppression here would go on lying the day the check is removed.
@@ -212,6 +233,15 @@ object DueNotifier {
                         ).build(),
                     )
                 }
+                if (speak != null) {
+                    addAction(
+                        NotificationCompat.Action.Builder(
+                            R.drawable.ic_notification_due,
+                            "Speak",
+                            speakIntent(context, speak),
+                        ).build(),
+                    )
+                }
             }
             .build()
 
@@ -245,6 +275,20 @@ object DueNotifier {
             // Distinct request code per word, otherwise FLAG_UPDATE_CURRENT would leave an older
             // PendingIntent holding the previous card's extras.
             hanzi.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun speakIntent(context: Context, text: String): PendingIntent {
+        val intent = Intent(context, NotificationRefreshReceiver::class.java)
+            .setAction(NotificationRefreshReceiver.ACTION_SPEAK)
+            .putExtra(NotificationRefreshReceiver.EXTRA_SPEAK_TEXT, text)
+        return PendingIntent.getBroadcast(
+            context,
+            // Same per-payload trick as revealIntent, offset so a word's Speak and Reveal
+            // request codes can never collide.
+            31 * text.hashCode() + 17,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

@@ -64,6 +64,8 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import com.mandopop.briefing.NotificationCatcher
 import com.mandopop.notification.DueNotifier
+import com.mandopop.notification.StatsTail
+import com.mandopop.notification.UsageMinutes
 import com.mandopop.service.TextSelectionService
 import com.mandopop.tts.ChineseTtsManager
 import com.mandopop.settings.SettingsStore
@@ -109,6 +111,7 @@ class MainActivity : ComponentActivity() {
     private var notificationListenerEnabled by mutableStateOf(false)
     private var notificationListenerConnected by mutableStateOf(false)
     private var calendarGranted by mutableStateOf(false)
+    private var usageAccessGranted by mutableStateOf(false)
 
     private val calendarPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -165,11 +168,15 @@ class MainActivity : ComponentActivity() {
                 notificationListenerEnabled = notificationListenerEnabled,
                 notificationListenerConnected = notificationListenerConnected,
                 calendarGranted = calendarGranted,
+                usageAccessGranted = usageAccessGranted,
                 openNotificationAccessSettings = {
                     startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                 },
                 requestCalendarPermission = {
                     calendarPermission.launch(Manifest.permission.READ_CALENDAR)
+                },
+                openUsageAccessSettings = {
+                    startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                 },
             )
         }
@@ -187,6 +194,7 @@ class MainActivity : ComponentActivity() {
             this,
             Manifest.permission.READ_CALENDAR,
         ) == PackageManager.PERMISSION_GRANTED
+        usageAccessGranted = UsageMinutes.isGranted(this)
         // Rebuild the notification whenever the app is opened. Cheap (local counts only) and it
         // means a stale or swiped-away notification is never more than an app launch from correct,
         // instead of waiting up to 15 minutes for the next periodic sync.
@@ -194,6 +202,7 @@ class MainActivity : ComponentActivity() {
             runCatching {
                 withContext(Dispatchers.IO) {
                     if (!traverseSync.isSignedIn()) return@withContext null
+                    StatsTail.refresh(applicationContext)
                     Triple(
                         traverseSync.localDueCount(),
                         traverseSync.localLiveCount(),
@@ -237,8 +246,10 @@ private fun MandopopSettingsApp(
     notificationListenerEnabled: Boolean,
     notificationListenerConnected: Boolean,
     calendarGranted: Boolean,
+    usageAccessGranted: Boolean,
     openNotificationAccessSettings: () -> Unit,
     requestCalendarPermission: () -> Unit,
+    openUsageAccessSettings: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val initial = remember { settingsStore.snapshot() }
@@ -345,8 +356,10 @@ private fun MandopopSettingsApp(
                     listenerEnabled = notificationListenerEnabled,
                     listenerConnected = notificationListenerConnected,
                     calendarGranted = calendarGranted,
+                    usageAccessGranted = usageAccessGranted,
                     onOpenNotificationAccess = openNotificationAccessSettings,
                     onRequestCalendar = requestCalendarPermission,
+                    onOpenUsageAccess = openUsageAccessSettings,
                 )
 
                 AttributionFooter()

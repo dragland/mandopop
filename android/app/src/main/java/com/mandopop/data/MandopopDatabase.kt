@@ -53,7 +53,26 @@ interface ScheduleDao {
 
     @Query("SELECT COUNT(*) FROM schedules WHERE suspended = 0")
     suspend fun countLive(): Int
+
+    /**
+     * Live rows with a real review history, for the retrievability stat. `repetitions > 0`
+     * excludes new cards (their interval is a scheduling default, not a memory) and
+     * `interval_days > 0` guards the division.
+     */
+    @Query(
+        """
+        SELECT interval_days, due_time_ms FROM schedules
+        WHERE suspended = 0 AND repetitions > 0 AND interval_days > 0
+        """,
+    )
+    suspend fun liveIntervals(): List<LiveInterval>
 }
+
+/** One live card's memory state, as the SRS knows it: how long the interval, when it lapses. */
+data class LiveInterval(
+    @ColumnInfo(name = "interval_days") val intervalDays: Double,
+    @ColumnInfo(name = "due_time_ms") val dueTimeMs: Long,
+)
 
 /**
  * A card awaiting content: the template that decides how to read it, and the author whose
@@ -197,6 +216,25 @@ interface CardContentDao {
         """,
     )
     suspend fun dueExample(boundaryMs: Long): CardContentEntity?
+
+    /**
+     * Studied sentences containing a word, for the notification's i+1 cloze. Unsuspended rows
+     * only — a sentence from an unreached lesson is not fair context. The `LIKE` is the whole
+     * targeting mechanism on purpose: it finds every sentence *containing* the word without the
+     * `==target==` parser change (a `CardParser.VERSION` bump re-reads the deck at ~940 billed
+     * documents), and the display-time i+1 filter does the quality control.
+     */
+    @Query(
+        """
+        SELECT DISTINCT c.hanzi FROM card_content c
+        JOIN schedules s ON s.card_id = c.card_id
+        WHERE c.is_sentence = 1 AND c.hanzi IS NOT NULL
+          AND s.suspended = 0
+          AND c.hanzi LIKE '%' || :word || '%'
+        LIMIT 30
+        """,
+    )
+    suspend fun sentencesContaining(word: String): List<String>
 }
 
 @Dao

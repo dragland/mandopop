@@ -6,6 +6,7 @@ import com.mandopop.data.FrontierWord
 import com.mandopop.data.MandopopDatabase
 import com.mandopop.dictionary.DictionaryRepository
 import com.mandopop.notification.DueNotifier
+import com.mandopop.notification.StatsTail
 import com.mandopop.traverse.Segmenter
 import com.mandopop.traverse.TraverseSync
 import kotlinx.coroutines.CancellationException
@@ -110,6 +111,21 @@ object BriefingEngine {
     @Volatile
     private var dismissedGenerationMs = 0L
 
+    /** percent known, source package, snapshot timestamp — spec.md §4.4's score. */
+    @Volatile
+    private var storedScore: Triple<Int, String, Long>? = null
+
+    /**
+     * "How much of the screen I was just reading is readable" — only while the snapshot it was
+     * scored from is recent enough to still be that screen.
+     */
+    val screenScoreLine: String?
+        get() = storedScore
+            ?.takeIf { System.currentTimeMillis() - it.third < SCORE_FRESH_MS }
+            ?.let { "Screen ≈${it.first}% readable" }
+
+    private const val SCORE_FRESH_MS = 15 * 60 * 1000L
+
     /**
      * The briefing the zero-due ambient line may show: none if the user dismissed this exact
      * generation. Reposts come from many doors (worker, resume, shade-pull) and must not
@@ -129,7 +145,10 @@ object BriefingEngine {
         val appContext = context.applicationContext
         scope.launch(Dispatchers.Default) {
             try {
-                if (refresh(appContext)) repostFromLocal(appContext)
+                val changed = refresh(appContext)
+                // Stats move with the clock even when the briefing inputs don't.
+                runCatching { StatsTail.refresh(appContext) }
+                if (changed) repostFromLocal(appContext)
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -189,6 +208,17 @@ object BriefingEngine {
         val rejections = mutableListOf<String>()
         val dictionary = dictionary ?: DictionaryRepository(context.applicationContext)
             .also { dictionary = it }
+
+        // Score the screen snapshot while the vocabulary and dictionary are in hand — cheap, and
+        // independent of whether a briefing plan comes together.
+        ScreenTextMonitor.snapshot?.takeIf { inputs.nowMs - it.capturedAtMs < SCORE_FRESH_MS }?.let { snap ->
+            val snapWords = dictionary.knownSimplified(Segmenter.candidates(snap.text))
+            ScreenScoring.score(
+                snap.text,
+                isWord = { it in snapWords || it in known },
+                isKnown = { it in known },
+            )?.let { storedScore = Triple(it.percentKnown, snap.packageName, snap.capturedAtMs) }
+        }
 
         val plan = BriefingPicker.plan(inputs, known, frontier, ZoneId.systemDefault()) { word ->
             dictionary.lookup(word, 1).firstOrNull()?.simplified

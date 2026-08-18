@@ -46,8 +46,10 @@ internal fun BriefingPanel(
     listenerEnabled: Boolean,
     listenerConnected: Boolean,
     calendarGranted: Boolean,
+    usageAccessGranted: Boolean,
     onOpenNotificationAccess: () -> Unit,
     onRequestCalendar: () -> Unit,
+    onOpenUsageAccess: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -91,6 +93,14 @@ internal fun BriefingPanel(
             ok = calendarGranted,
             action = "Grant",
             onAction = onRequestCalendar,
+        )
+        // Powers the notification's "min studied" stat, not the briefing itself — but this panel
+        // is where every notification-feeding grant lives, so it sits with its siblings.
+        StatusRow(
+            label = "Usage access",
+            ok = usageAccessGranted,
+            action = "Grant",
+            onAction = onOpenUsageAccess,
         )
         StatusRow(
             label = "Gemma 3n model",

@@ -7,6 +7,7 @@ import android.util.Log
 import com.mandopop.briefing.BriefingEngine
 import com.mandopop.notification.DueNotifier
 import com.mandopop.traverse.TraverseSync
+import com.mandopop.tts.ChineseTtsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -30,6 +31,21 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         if (action !in HANDLED) return
+
+        // Speak stands alone: no sync, no repost — just say the Chinese and finish. The TTS
+        // callback fires on the main handler after speech ends, which is what releases the
+        // broadcast's async window.
+        if (action == ACTION_SPEAK) {
+            val text = intent.getStringExtra(EXTRA_SPEAK_TEXT)?.takeIf { it.isNotBlank() } ?: return
+            val pending = goAsync()
+            val tts = ChineseTtsManager(context.applicationContext)
+            tts.speak(text) {
+                tts.shutdown()
+                pending.finish()
+            }
+            return
+        }
+
         val hanzi = intent.getStringExtra(EXTRA_HANZI)
 
         val appContext = context.applicationContext
@@ -97,7 +113,9 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
         const val ACTION_DISMISSED = "com.mandopop.action.NOTIFICATION_DISMISSED"
         const val ACTION_AMBIENT_DISMISSED = "com.mandopop.action.AMBIENT_DISMISSED"
         const val ACTION_REVEAL = "com.mandopop.action.REVEAL"
+        const val ACTION_SPEAK = "com.mandopop.action.SPEAK"
         const val EXTRA_HANZI = "hanzi"
+        const val EXTRA_SPEAK_TEXT = "speak_text"
 
         private const val TAG = "MandopopNotif"
         private val HANDLED = setOf(
@@ -105,6 +123,7 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
             ACTION_DISMISSED,
             ACTION_AMBIENT_DISMISSED,
             ACTION_REVEAL,
+            ACTION_SPEAK,
         )
     }
 }
