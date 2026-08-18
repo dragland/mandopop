@@ -41,26 +41,20 @@ object BriefingEngine {
 
     enum class Source { MODEL, TEMPLATE }
 
+    /**
+     * The notification shows [sentence] hanzi-only — no glosses, ever. The introduction-rule
+     * gloss for the frontier word was tried and killed: `known_words` mirrors Traverse, and
+     * this user's Chinese predates the course, so "un-learned by the deck" routinely meant
+     * "known to the human" — and an English gloss beside a recallable word wrecks the recall.
+     * The frontier word still appears in-sentence, unglossed (noticing without the answer);
+     * [frontier] stays on the object for the settings bench, which is allowed to show answers.
+     */
     data class Briefing(
         val sentence: String,
         val frontier: FrontierWord?,
         val source: Source,
         val generatedAtMs: Long,
-    ) {
-        /**
-         * Expanded-view block. The sentence shows hanzi only; the frontier word is the one
-         * exception and arrives glossed — it is un-learned, so there is no recall to defeat
-         * (introduction rule), and pre-noticing a curriculum word is the point.
-         */
-        fun expandedBlock(): String = buildString {
-            append(sentence)
-            frontier?.takeIf { sentence.contains(it.hanzi) }?.let {
-                append('\n').append(it.hanzi)
-                it.pinyin?.let { p -> append(' ').append(p) }
-                it.english?.let { e -> append(" — ").append(e) }
-            }
-        }
-    }
+    )
 
     /** Everything the settings screen needs to judge the composer. */
     data class Attempt(

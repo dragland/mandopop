@@ -59,7 +59,7 @@ object DueNotifier {
                     } else {
                         post(
                             context,
-                            title = "All caught up",
+                            title = "复习完了 ✓",
                             text = briefing.sentence,
                             needsAttention = false,
                             reveal = null,
@@ -86,7 +86,7 @@ object DueNotifier {
                         context,
                         // Compact per the spec sketch — the collapsed line's budget belongs to
                         // the cloze sentence, not to the word "cards".
-                        title = "今天 · ${outcome.dueCount} due",
+                        title = "今天 · ${outcome.dueCount} 到期",
                         // Characters only. Printing the reading and meaning alongside would turn a
                         // retrieval prompt into passive exposure, which is the opposite of what
                         // spaced repetition is for — the answer lives behind the Reveal action.
@@ -158,7 +158,7 @@ object DueNotifier {
         val briefing = BriefingEngine.current
         post(
             context,
-            title = "$hanzi — 今天 · $dueCount due",
+            title = "$hanzi — 今天 · $dueCount 到期",
             text = gloss,
             needsAttention = false,
             reveal = null,
@@ -179,7 +179,7 @@ object DueNotifier {
         val tail = listOfNotNull(BriefingEngine.screenScoreLine, StatsTail.line)
         val blocks = listOfNotNull(
             body,
-            briefing?.expandedBlock(),
+            briefing?.sentence,
             tail.takeIf { it.isNotEmpty() }?.joinToString("\n"),
         )
         return blocks.takeIf { it.size > 1 || body == null }?.joinToString("\n\n")

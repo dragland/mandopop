@@ -51,17 +51,18 @@ class StudyStatsTest {
     @Test
     fun lineOmitsWhatItCannotHonestlySay() {
         val stats = StudyStats.Stats(recallable = 12, mature = 3, young = 9)
-        assertTrue(!StudyStats.line(stats, null, null).contains("min"))
-        assertTrue(!StudyStats.line(stats, 0, null).contains("min"))
+        assertTrue(!StudyStats.line(stats, null, null).contains("分钟"))
+        assertTrue(!StudyStats.line(stats, 0, null).contains("分钟"))
         assertTrue(!StudyStats.line(stats, null, null).contains("%"))
-        assertTrue(StudyStats.line(stats, 38, null).contains("38 min studied"))
+        assertTrue(StudyStats.line(stats, 38, null).contains("今天学了 38 分钟"))
     }
 
     @Test
-    fun coverageLeadsTheLine() {
+    fun coverageLeadsTheLineInChinese() {
         val stats = StudyStats.Stats(recallable = 12, mature = 3, young = 9)
         val line = StudyStats.line(stats, 38, 41.27)
-        assertTrue(line, line.startsWith("≈41.3% of everyday Chinese"))
+        assertTrue(line, line.startsWith("日常中文 ≈41.3% 看得懂"))
+        assertTrue(line, "还记得 ≈12 个词" in line)
         assertTrue(line, "mature" !in line && "young" !in line)
     }
 }

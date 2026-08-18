@@ -38,20 +38,22 @@ object StudyStats {
     }
 
     /**
-     * One line, " · "-joined — the expanded view has no room for a dashboard. Coverage leads:
-     * SUBTLEX frequency mass of the known vocabulary over the whole corpus's mass, "the
-     * fraction of everyday running Chinese you can read" — Zipf makes early progress visibly
-     * fast, unlike a raw dictionary percentage. Coverage ≠ comprehension (Nation's ~98%
-     * threshold is the caveat of record), so the copy says "everyday Chinese", never fluency.
+     * One line, " · "-joined, in Chinese — chrome the user reads dozens of times a day is free
+     * study material. Coverage leads: SUBTLEX frequency mass of the known vocabulary over the
+     * whole corpus's mass. Front-loaded by construction (Zipf: this user's top-10 function
+     * words carry 26 of their 51 points), so read it as token coverage, never comprehension —
+     * Nation's ~98% comfortable-reading threshold is the caveat of record. Wording pattern is
+     * shared with the screen line: subject · ≈percent · verb; 日常中文 "everyday Chinese",
+     * 还记得 "still remember", 学了…分钟 "studied … minutes".
      */
     fun line(stats: Stats, minutesStudied: Int?, coveragePercent: Double?): String = buildString {
         if (coveragePercent != null && coveragePercent > 0) {
-            append("≈%.1f%% of everyday Chinese".format(coveragePercent))
+            append("日常中文 ≈%.1f%% 看得懂".format(coveragePercent))
             append(" · ")
         }
-        append("≈${stats.recallable} recallable now")
+        append("还记得 ≈${stats.recallable} 个词")
         if (minutesStudied != null && minutesStudied > 0) {
-            append(" · $minutesStudied min studied")
+            append(" · 今天学了 $minutesStudied 分钟")
         }
     }
 }

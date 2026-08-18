@@ -57,8 +57,13 @@ object ScreenScoring {
         return Score(Flavor.SAYABLE, (known * 100) / mapped, mapped)
     }
 
+    /**
+     * The stat lines are themselves Chinese — chrome the user reads dozens of times a day is
+     * free study material. Pattern shared with the coverage stat: subject · ≈percent · verb.
+     * 看得懂 "can read-and-understand it", 会说 "can say it".
+     */
     fun line(score: Score): String = when (score.flavor) {
-        Flavor.READABLE -> "Screen ≈${score.percentKnown}% readable"
-        Flavor.SAYABLE -> "Screen ≈${score.percentKnown}% sayable in Chinese"
+        Flavor.READABLE -> "屏幕 ≈${score.percentKnown}% 看得懂"
+        Flavor.SAYABLE -> "屏幕 ≈${score.percentKnown}% 会说"
     }
 }

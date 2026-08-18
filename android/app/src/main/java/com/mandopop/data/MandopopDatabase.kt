@@ -55,14 +55,24 @@ interface ScheduleDao {
     suspend fun countLive(): Int
 
     /**
-     * Live rows with a real review history, for the retrievability stat. `repetitions > 0`
-     * excludes new cards (their interval is a scheduling default, not a memory) and
-     * `interval_days > 0` guards the division.
+     * One row per live *word card* with a real review history, for the retrievability stat.
+     *
+     * The stat's copy says 词, so the math is over words: joined to content rows with hanzi
+     * (`is_sentence = 0` — a drilled sentence is not a word) and sound-only cards excluded via
+     * the shared predicate, per card. Per-card MIN over prompt rows, because summing rows
+     * double-counted multi-prompt cards and the weaker prompt is the honest read of whether
+     * the word is still retrievable. `repetitions > 0` excludes new cards (their interval is a
+     * scheduling default, not a memory); `interval_days > 0` guards the division.
      */
     @Query(
         """
-        SELECT interval_days, due_time_ms FROM schedules
-        WHERE suspended = 0 AND repetitions > 0 AND interval_days > 0
+        SELECT MIN(s.interval_days) AS interval_days, MIN(s.due_time_ms) AS due_time_ms
+        FROM schedules s
+        JOIN card_content c ON c.card_id = s.card_id
+        WHERE s.suspended = 0 AND s.repetitions > 0 AND s.interval_days > 0
+          AND c.hanzi IS NOT NULL AND c.is_sentence = 0
+          AND s.card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
+        GROUP BY s.card_id
         """,
     )
     suspend fun liveIntervals(): List<LiveInterval>
