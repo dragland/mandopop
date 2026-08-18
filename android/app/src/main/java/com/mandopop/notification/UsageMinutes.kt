@@ -29,6 +29,12 @@ object UsageMinutes {
     /** How far past midnight a study session is allowed to straddle and still be clipped in. */
     private const val STRADDLE_LOOKBACK_MS = 6 * 60 * 60 * 1000L
 
+    // Literal values of UsageEvents.Event constants above this minSdk (SCREEN_NON_INTERACTIVE
+    // and KEYGUARD_SHOWN are API 28+, ACTIVITY_STOPPED API 29+; the values are stable).
+    private const val TYPE_SCREEN_NON_INTERACTIVE = 16
+    private const val TYPE_KEYGUARD_SHOWN = 17
+    private const val TYPE_ACTIVITY_STOPPED = 23
+
     /**
      * The study allowlist. Traverse is certain; the other two are the apps' published ids —
      * verify against `adb shell pm list packages` if their minutes ever read as zero while
@@ -79,13 +85,22 @@ object UsageMinutes {
             }
             while (events.hasNextEvent()) {
                 events.getNextEvent(event)
+                val type = event.eventType
+                // Screen-off/keyguard closes every open session: an LMK kill emits no
+                // background event, and an unmatched resume otherwise credits
+                // midnight-to-now as study time (measured: "今天学了 921 分钟").
+                if (type == TYPE_SCREEN_NON_INTERACTIVE || type == TYPE_KEYGUARD_SHOWN) {
+                    for (since in resumedAt.values) credit(since, event.timeStamp)
+                    resumedAt.clear()
+                    continue
+                }
                 if (event.packageName !in STUDY_PACKAGES) continue
                 // ACTIVITY_RESUMED/PAUSED share values with the pre-Q constants.
                 @Suppress("DEPRECATION")
-                when (event.eventType) {
+                when (type) {
                     UsageEvents.Event.MOVE_TO_FOREGROUND ->
                         resumedAt.putIfAbsent(event.packageName, event.timeStamp)
-                    UsageEvents.Event.MOVE_TO_BACKGROUND ->
+                    UsageEvents.Event.MOVE_TO_BACKGROUND, TYPE_ACTIVITY_STOPPED ->
                         resumedAt.remove(event.packageName)?.let { credit(it, event.timeStamp) }
                 }
             }
