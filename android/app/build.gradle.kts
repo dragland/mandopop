@@ -41,6 +41,15 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+
+        externalNativeBuild {
+            cmake {
+                // Android 15+ enforces 16KB-aligned ELF segments on 16KB-page devices (this
+                // Pixel included); NDK r27 still defaults to 4KB. This flag sets
+                // max-page-size for every target in the build, llama.cpp's libs included.
+                arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+            }
+        }
     }
 
     externalNativeBuild {

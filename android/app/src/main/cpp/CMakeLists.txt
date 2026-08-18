@@ -8,6 +8,11 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# 16KB-page devices (Android 15+, this Pixel included) refuse 4KB-aligned ELF segments.
+# Applied here rather than trusting ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES, which NDK r27's
+# toolchain ignored in practice — this covers every target in the subdirectory too.
+add_link_options("-Wl,-z,max-page-size=16384")
+
 set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
