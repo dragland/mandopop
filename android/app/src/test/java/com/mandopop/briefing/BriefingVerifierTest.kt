@@ -22,10 +22,13 @@ class BriefingVerifierTest {
     }
 
     @Test
-    fun rejectsUnknownWordAndNamesIt() {
+    fun rejectsUnknownWordAndNamesItsParts() {
+        // 会议 is unknown as a unit and decomposes to 会 and 议, also unknown — the failure
+        // names the irreducible characters, which is what the retry's avoid-list carries.
         val verdict = verify("你今天有一个会议。")
         assertTrue(verdict is BriefingVerifier.Verdict.Fail)
-        assertEquals(listOf("会议"), (verdict as BriefingVerifier.Verdict.Fail).unknownWords)
+        val unknown = (verdict as BriefingVerifier.Verdict.Fail).unknownWords
+        assertTrue("会" in unknown && "议" in unknown)
     }
 
     @Test
@@ -63,5 +66,30 @@ class BriefingVerifierTest {
     @Test
     fun chinesePunctuationAndDigitsAreNotWords() {
         assertEquals(BriefingVerifier.Verdict.Pass, verify("你今天有3个消息！"))
+    }
+
+    @Test
+    fun inventedCompoundDecomposesIntoKnownCharacters() {
+        // 有事 is a real CC-CEDICT compound the user hasn't learned as a unit — but 有 and 事
+        // are both known, so the sentence reads fine under the decomposed segmentation.
+        val verdict = BriefingVerifier.verify(
+            "你今天有事。",
+            isWord = { it in setOf("今天", "有事") || it in setOf("你", "今天", "有", "事") },
+            isAllowed = { it in setOf("你", "今天", "有", "事") },
+        )
+        assertEquals(BriefingVerifier.Verdict.Pass, verdict)
+    }
+
+    @Test
+    fun compoundWithAGenuinelyUnknownCharacterStillFails() {
+        // 安排 decomposes to 安 and 排, neither known — decomposition must not launder it.
+        val verdict = BriefingVerifier.verify(
+            "你今天有安排。",
+            isWord = { it in setOf("今天", "安排") || it in setOf("你", "今天", "有") },
+            isAllowed = { it in setOf("你", "今天", "有") },
+        )
+        assertTrue(verdict is BriefingVerifier.Verdict.Fail)
+        val unknown = (verdict as BriefingVerifier.Verdict.Fail).unknownWords
+        assertTrue("安" in unknown && "排" in unknown)
     }
 }

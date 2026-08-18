@@ -13,6 +13,7 @@ object BriefingPrompt {
             append("You write one short, simple, natural Chinese sentence for a beginner.\n")
             append("Rules: simplified characters only. Build the sentence from the given words. ")
             append("Keep it under 15 characters. ")
+            append("Never translate or transliterate names - call a person 朋友. ")
             append("Output only the Chinese sentence - no pinyin, no translation, no quotes.\n\n")
             append("Topic: today's calendar event: \"Team meeting\" at 15:00\n")
             append("Words: 今天 下午 会议\n")
