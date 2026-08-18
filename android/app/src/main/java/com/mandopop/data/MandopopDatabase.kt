@@ -228,6 +228,23 @@ interface CardContentDao {
     suspend fun dueExample(boundaryMs: Long): CardContentEntity?
 
     /**
+     * The most-forgotten due words, plural: the notification prefers whichever of them can be
+     * shown inside an i+1 sentence, and a single-candidate query made one sentence-less word
+     * (选择, zero studied sentences contain it) lock the whole surface to bare-word mode.
+     */
+    @Query(
+        """
+        SELECT c.* FROM card_content c
+        JOIN schedules s ON s.card_id = c.card_id
+        WHERE c.english IS NOT NULL AND c.is_sentence = 0
+          AND s.suspended = 0 AND s.due_time_ms < :boundaryMs
+        ORDER BY s.lapses DESC, s.due_time_ms ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun dueExamples(boundaryMs: Long, limit: Int): List<CardContentEntity>
+
+    /**
      * Studied sentences containing a word, for the notification's i+1 cloze. Unsuspended rows
      * only — a sentence from an unreached lesson is not fair context. The `LIKE` is the whole
      * targeting mechanism on purpose: it finds every sentence *containing* the word without the
