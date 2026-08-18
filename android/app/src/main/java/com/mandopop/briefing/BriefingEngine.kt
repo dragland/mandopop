@@ -129,18 +129,19 @@ object BriefingEngine {
     @Volatile
     private var dismissedGenerationMs = 0L
 
-    /** percent known, source package, snapshot timestamp — spec.md §4.4's score. */
+    /** Rendered score line + snapshot timestamp — spec.md §4.4's comprehension line. */
     @Volatile
-    private var storedScore: Triple<Int, String, Long>? = null
+    private var storedScore: Pair<String, Long>? = null
 
     /**
-     * "How much of the screen I was just reading is readable" — only while the snapshot it was
-     * scored from is recent enough to still be that screen.
+     * "How much of the screen I was just reading do I comprehend" — readable-% for Chinese
+     * screens, sayable-% for English ones — only while the snapshot it was scored from is
+     * recent enough to still be that screen.
      */
     val screenScoreLine: String?
         get() = storedScore
-            ?.takeIf { System.currentTimeMillis() - it.third < SCORE_FRESH_MS }
-            ?.let { "Screen ≈${it.first}% readable" }
+            ?.takeIf { System.currentTimeMillis() - it.second < SCORE_FRESH_MS }
+            ?.first
 
     private const val SCORE_FRESH_MS = 15 * 60 * 1000L
 
@@ -228,14 +229,20 @@ object BriefingEngine {
             .also { dictionary = it }
 
         // Score the screen snapshot while the vocabulary and dictionary are in hand — cheap, and
-        // independent of whether a briefing plan comes together.
+        // independent of whether a briefing plan comes together. Chinese screens score as
+        // readable-%; English screens (most of this phone's reading) as sayable-%.
         ScreenTextMonitor.snapshot?.takeIf { inputs.nowMs - it.capturedAtMs < SCORE_FRESH_MS }?.let { snap ->
             val snapWords = dictionary.knownSimplified(Segmenter.candidates(snap.text))
-            ScreenScoring.score(
+            val score = ScreenScoring.readable(
                 snap.text,
                 isWord = { it in snapWords || it in known },
                 isKnown = { it in known },
-            )?.let { storedScore = Triple(it.percentKnown, snap.packageName, snap.capturedAtMs) }
+            ) ?: ScreenScoring.sayable(
+                snap.text,
+                isKnown = { it in known },
+                lookup = { word -> dictionary.lookup(word, 1).firstOrNull()?.simplified },
+            )
+            score?.let { storedScore = ScreenScoring.line(it) to snap.capturedAtMs }
         }
 
         val plan = BriefingPicker.plan(inputs, known, frontier, ZoneId.systemDefault()) { word ->

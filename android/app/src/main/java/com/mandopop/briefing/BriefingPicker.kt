@@ -192,14 +192,14 @@ object BriefingPicker {
      * English content words by descending frequency, stopwords and short words dropped. No POS
      * tagging — the reverse dictionary is the arbiter of whether a token means anything.
      */
-    fun contentWords(text: String): List<String> {
+    fun contentWords(text: String, limit: Int = MAX_CONTENT_WORDS): List<String> {
         val counts = LinkedHashMap<String, Int>()
         for (match in WORD.findAll(text)) {
             val word = match.value.lowercase()
             if (word.length < 3 || word in STOPWORDS) continue
             counts[word] = (counts[word] ?: 0) + 1
         }
-        return counts.entries.sortedByDescending { it.value }.map { it.key }.take(MAX_CONTENT_WORDS)
+        return counts.entries.sortedByDescending { it.value }.map { it.key }.take(limit)
     }
 
     private fun glossIndex(frontier: List<FrontierWord>): Map<String, FrontierWord> {

@@ -72,7 +72,6 @@ object DueNotifier {
                         )
                     }
                 } else {
-                    val cards = if (outcome.dueCount == 1) "card" else "cards"
                     val example = outcome.example
                     // The cloze upgrade: a studied all-known sentence containing the due word
                     // beats the bare word as a retrieval prompt. Falls back to the word.
@@ -85,7 +84,9 @@ object DueNotifier {
                         ?.takeIf { example == null || !it.sentence.contains(example.hanzi) }
                     post(
                         context,
-                        title = "${outcome.dueCount} $cards due today",
+                        // Compact per the spec sketch — the collapsed line's budget belongs to
+                        // the cloze sentence, not to the word "cards".
+                        title = "${outcome.dueCount} due today",
                         // Characters only. Printing the reading and meaning alongside would turn a
                         // retrieval prompt into passive exposure, which is the opposite of what
                         // spaced repetition is for — the answer lives behind the Reveal action.
@@ -152,13 +153,12 @@ object DueNotifier {
      * to being a prompt rather than a flashcard left face-up.
      */
     fun showAnswer(context: Context, dueCount: Int, hanzi: String, gloss: String) {
-        val cards = if (dueCount == 1) "card" else "cards"
         // The answer is face-up here, so the briefing needs no due-word filter — but it stays in
         // the expanded view so revealing doesn't make the notification visibly lose a limb.
         val briefing = BriefingEngine.current
         post(
             context,
-            title = "$hanzi — $dueCount $cards due today",
+            title = "$hanzi — $dueCount due today",
             text = gloss,
             needsAttention = false,
             reveal = null,
