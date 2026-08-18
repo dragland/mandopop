@@ -103,10 +103,10 @@ internal fun BriefingPanel(
             onAction = onOpenUsageAccess,
         )
         StatusRow(
-            label = "Gemma 3n model",
+            label = "On-device model",
             ok = modelStatus is GemmaComposer.Status.Ready,
             okText = when (val status = modelStatus) {
-                is GemmaComposer.Status.Ready -> "Loaded (${status.backend})"
+                is GemmaComposer.Status.Ready -> "${status.model} (${status.backend})"
                 is GemmaComposer.Status.NotLoaded -> "On disk — loads on first generation (~10s)"
                 is GemmaComposer.Status.MissingModel -> "Not installed"
                 is GemmaComposer.Status.Failed -> "Engine failed"
@@ -115,11 +115,11 @@ internal fun BriefingPanel(
             action = null,
             onAction = {},
         )
-        // The model is provisioned by hand once — a 3GB file has no business in the APK, and the
+        // The model is provisioned by hand once — gigabytes have no business in the APK, and the
         // exact push target is the one thing worth printing.
         (modelStatus as? GemmaComposer.Status.MissingModel)?.let {
             Text(
-                text = "adb push gemma-3n-e2b.litertlm ${it.expectedPath}",
+                text = "adb push ${it.expectedPath}",
                 color = MutedText,
                 fontSize = 11.sp,
                 lineHeight = 15.sp,

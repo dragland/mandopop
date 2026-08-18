@@ -39,7 +39,7 @@ class GemmaComposer(private val appContext: Context) {
         /** File present; the engine loads on the first generation (~10 s). */
         data object NotLoaded : Status
 
-        data class Ready(val backend: String) : Status
+        data class Ready(val backend: String, val model: String) : Status
 
         data class Failed(val message: String) : Status
     }
@@ -47,14 +47,15 @@ class GemmaComposer(private val appContext: Context) {
     private val mutex = Mutex()
     private var engine: Engine? = null
     private var loadedBackend: String? = null
+    private var loadedModel: String? = null
     private var lastError: String? = null
 
-    fun expectedModelPath(): String = modelFile().absolutePath
+    fun expectedModelPath(): String = File(modelDir(), "<model>.litertlm").absolutePath
 
     fun status(): Status {
-        engine?.let { return Status.Ready(loadedBackend ?: "?") }
+        engine?.let { return Status.Ready(loadedBackend ?: "?", loadedModel ?: "?") }
         lastError?.let { return Status.Failed(it) }
-        if (!modelFile().exists()) return Status.MissingModel(expectedModelPath())
+        if (modelFile() == null) return Status.MissingModel(expectedModelPath())
         return Status.NotLoaded
     }
 
@@ -73,9 +74,7 @@ class GemmaComposer(private val appContext: Context) {
     private fun ensureEngine(): Engine {
         engine?.let { return it }
         val file = modelFile()
-        if (!file.exists()) {
-            throw IllegalStateException("model file missing — adb push it to ${file.absolutePath}")
-        }
+            ?: throw IllegalStateException("no model — adb push a .litertlm to ${modelDir().absolutePath}/")
         // GPU first for prefill speed; some devices/drivers refuse, and a briefing composed on
         // CPU beats no briefing.
         val attempts = listOf<Backend>(Backend.GPU(), Backend.CPU())
@@ -92,8 +91,9 @@ class GemmaComposer(private val appContext: Context) {
                 candidate.initialize()
                 engine = candidate
                 loadedBackend = backend.name
+                loadedModel = file.name.removeSuffix(".litertlm")
                 lastError = null
-                Log.i(TAG, "Gemma engine loaded on ${backend.name}")
+                Log.i(TAG, "engine loaded: ${file.name} on ${backend.name}")
                 return candidate
             } catch (error: Exception) {
                 Log.w(TAG, "Gemma engine init failed on ${backend.name}", error)
@@ -109,15 +109,19 @@ class GemmaComposer(private val appContext: Context) {
             .filterIsInstance<Content.Text>()
             .joinToString("") { it.text }
 
-    private fun modelFile(): File =
-        File(appContext.getExternalFilesDir(null), "models/$MODEL_FILE_NAME")
+    private fun modelDir(): File = File(appContext.getExternalFilesDir(null), "models")
+
+    /**
+     * Any `.litertlm` dropped in the models dir — auditioning a different model is an adb push,
+     * never a rebuild. Alphabetically first when several are present, so which one wins is
+     * predictable; delete the loser rather than relying on the ordering.
+     */
+    private fun modelFile(): File? = modelDir()
+        .listFiles { file -> file.isFile && file.name.endsWith(".litertlm") }
+        ?.minByOrNull { it.name }
 
     private companion object {
         const val TAG = "MandopopBriefing"
-
-        /** google/gemma-3n-E2B-it-litert-lm from Hugging Face (litert-community build). */
-        const val MODEL_FILE_NAME = "gemma-3n-e2b.litertlm"
-
         const val MAX_OUTPUT_TOKENS = 64
     }
 }
