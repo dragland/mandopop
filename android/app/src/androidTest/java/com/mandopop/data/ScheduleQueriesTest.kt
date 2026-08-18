@@ -76,6 +76,49 @@ class ScheduleQueriesTest {
     }
 
     @Test
+    fun liveIntervalsCountsDistinctKnownWordsOnly() = runTest {
+        // Every filter this stat was caught lying without, in one fixture: duplicate cards of
+        // one word, a multi-prompt card, a sound-only card, a sentence card, a radical outside
+        // known_words, and a never-reviewed card.
+        schedules.replaceAll(
+            listOf(
+                schedule("water-a-0", cardId = "water-a", dueTimeMs = 5_000L),
+                schedule("water-a-1", cardId = "water-a", dueTimeMs = 9_000L),
+                schedule("water-b", cardId = "water-b", dueTimeMs = 7_000L),
+                schedule("actor", cardId = "actor", template = "/MB/ACTOR REVIEW"),
+                schedule("sent", cardId = "sent"),
+                schedule("radical", cardId = "radical"),
+                schedule("fresh", cardId = "fresh").copy(repetitions = 0),
+            ),
+        )
+        content.putAll(
+            listOf(
+                CardContentEntity("water-a", "水", "shuǐ", "water", 0L, 1),
+                CardContentEntity("water-b", "水", "shuǐ", "water", 0L, 1),
+                CardContentEntity("actor", "八", "bā", "eight", 0L, 1),
+                CardContentEntity("sent", "我喝水", "wǒ hē shuǐ", "I drink water", 0L, 1, isSentence = true),
+                CardContentEntity("radical", "丨", null, null, 0L, 1),
+                CardContentEntity("fresh", "火", "huǒ", "fire", 0L, 1),
+            ),
+        )
+        db.knownWordDao().replaceAll(
+            listOf(
+                KnownWordEntity("水", "shuǐ", "water", KnownWordEntity.SOURCE_TAUGHT),
+                KnownWordEntity("八", "bā", "eight", KnownWordEntity.SOURCE_TAUGHT),
+                KnownWordEntity("火", "huǒ", "fire", KnownWordEntity.SOURCE_TAUGHT),
+            ),
+        )
+
+        val rows = schedules.liveIntervals()
+
+        // One row: 水, once — deduped across its two cards and three prompt rows. The sound
+        // drill, the sentence, the radical, and the unreviewed card contribute nothing.
+        assertEquals(1, rows.size)
+        // MIN over every prompt row of every card teaching the word: the weakest memory.
+        assertEquals(5_000L, rows.first().dueTimeMs)
+    }
+
+    @Test
     fun replaceAllSwapsTheMirrorRatherThanAccumulating() = runTest {
         schedules.replaceAll(listOf(schedule("old")))
         schedules.replaceAll(listOf(schedule("new-1"), schedule("new-2")))
