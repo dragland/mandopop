@@ -86,7 +86,7 @@ object DueNotifier {
                         context,
                         // Compact per the spec sketch — the collapsed line's budget belongs to
                         // the cloze sentence, not to the word "cards".
-                        title = "${outcome.dueCount} due today",
+                        title = "今天 · ${outcome.dueCount} due",
                         // Characters only. Printing the reading and meaning alongside would turn a
                         // retrieval prompt into passive exposure, which is the opposite of what
                         // spaced repetition is for — the answer lives behind the Reveal action.
@@ -158,7 +158,7 @@ object DueNotifier {
         val briefing = BriefingEngine.current
         post(
             context,
-            title = "$hanzi — $dueCount due today",
+            title = "$hanzi — 今天 · $dueCount due",
             text = gloss,
             needsAttention = false,
             reveal = null,

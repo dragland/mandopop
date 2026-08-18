@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import com.mandopop.briefing.BriefingEngine
 import com.mandopop.notification.DueNotifier
+import com.mandopop.notification.StatsTail
 import com.mandopop.traverse.TraverseSync
 import com.mandopop.tts.ChineseTtsManager
 import kotlinx.coroutines.CoroutineScope
@@ -88,7 +89,9 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
                     }
                 }
                 // Re-post from local counts first, so the notification never visibly disappears
-                // while a network round trip is in flight.
+                // while a network round trip is in flight. Stats refresh beforehand — a repost
+                // with a stale-or-empty tail reads as the feature being broken.
+                runCatching { StatsTail.refresh(appContext) }
                 val due = sync.localDueCount()
                 Log.i(TAG, "refresh after $action: due=$due")
                 DueNotifier.repost(appContext, due, sync.localLiveCount(), sync.localExample())
