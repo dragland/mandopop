@@ -48,6 +48,10 @@ android {
                 // Pixel included); NDK r27 still defaults to 4KB. This flag sets
                 // max-page-size for every target in the build, llama.cpp's libs included.
                 arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+                // Always optimize the native build: llama.cpp at -O0 is over an order of
+                // magnitude slower, and a debug APK is still how this app ships to the one
+                // device it runs on. Native debugging isn't a workflow here.
+                arguments += "-DCMAKE_BUILD_TYPE=Release"
             }
         }
     }
