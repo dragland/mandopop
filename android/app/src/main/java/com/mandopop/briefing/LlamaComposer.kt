@@ -18,21 +18,16 @@ sealed interface ComposerStatus {
 }
 
 /**
- * GGUF models in-process through llama.cpp (vendored at `android/third_party/llama.cpp`,
- * pinned; bridge in `src/main/cpp/llama_bridge.cpp`). The Qwen family — the strongest Chinese
- * per parameter — ships in no Google-runtime format, which is why this runtime exists; the
- * LiteRT/Gemma alternate was auditioned and deleted (git history has it). CPU-only, KleidiAI
- * kernels; a 2B Q4 clears the one-sentence latency budget without touching the GPU-driver
- * lottery. Loads lazily on first generation, stays resident, never touches the network.
+ * GGUF models in-process through llama.cpp (vendored submodule; bridge in
+ * `src/main/cpp/llama_bridge.cpp`). CPU-only with KleidiAI kernels — a 2B Q4 clears the
+ * one-sentence latency budget without the GPU-driver lottery. Loads lazily on first
+ * generation, stays resident, never touches the network.
  */
 class LlamaComposer(private val appContext: Context) {
 
     /**
-     * A plain monitor, not a coroutine mutex, because [close] must be able to take it from
-     * non-suspend context: an adb model-swap makes the engine close this composer, and an
-     * unload racing an in-flight generate is a native use-after-free — every native call sits
-     * under this lock. Blocking a Default-dispatcher thread for a generation's duration is what
-     * generation costs regardless.
+     * Plain monitor (close() is non-suspend): every native call sits under it, because an
+     * unload racing an in-flight generate is a native use-after-free.
      */
     private val runtimeLock = Any()
 
@@ -58,14 +53,12 @@ class LlamaComposer(private val appContext: Context) {
         // no locking of its own.
         synchronized(runtimeLock) {
             ensureLoaded()
-            // Day-keyed seed: same inputs still phrase differently tomorrow (contextual
-            // variability), while stays deterministic within a day.
+            // Day-keyed seed: deterministic within a day, fresh phrasing across days.
             val seed = java.time.LocalDate.now().toEpochDay().toInt()
             val bytes = nativeGenerate(prompt, MAX_OUTPUT_TOKENS, TEMPERATURE, TOP_K, seed)
                 ?: throw IllegalStateException("llama generation failed")
-            // Bytes, not a JNI string: the token budget can slice a hanzi mid-sequence, and
-            // Kotlin's decoder degrades that to a replacement char for the verifier to refuse
-            // instead of ART aborting the process on invalid Modified UTF-8.
+            // Bytes, not a JNI string: a mid-hanzi token cut is invalid Modified UTF-8, which
+            // NewStringUTF answers by aborting the process.
             String(bytes, Charsets.UTF_8)
         }
     }
@@ -94,7 +87,7 @@ class LlamaComposer(private val appContext: Context) {
         Log.i(TAG, "engine loaded: ${file.name} on llama.cpp/CPU")
     }
 
-    // mkdirs so the dir is app-owned — a shell-created one is untraversable by the app's uid.
+    // App-created so the app's uid owns it; a shell-made dir is untraversable.
     private fun modelDir(): File =
         File(appContext.getExternalFilesDir(null), "models").apply { mkdirs() }
 

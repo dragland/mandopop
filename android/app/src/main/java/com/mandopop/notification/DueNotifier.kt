@@ -51,9 +51,8 @@ object DueNotifier {
             // feels like finishing rather than earning a "well done" that sits in the shade.
             is SyncOutcome.Success -> {
                 if (outcome.dueCount == 0) {
-                    // Dismissal is remembered per generation in BriefingEngine, because reposts
-                    // arrive through many doors (worker, resume, shade-pull) and none of them may
-                    // resurrect a line the user swiped away. A newly generated briefing shows.
+                    // Dismissal is remembered per generation — reposts arrive through many
+                    // doors and none may resurrect a swiped line; a new generation shows.
                     val briefing = BriefingEngine.ambientBriefing()
                     if (briefing == null) {
                         cancel(context)
@@ -65,8 +64,7 @@ object DueNotifier {
                             needsAttention = false,
                             reveal = null,
                             expandedText = expanded(briefing.sentence),
-                            // Dismissable: at zero due there is nothing to nag about. The delete
-                            // intent only records the dismissal — it never re-posts.
+                            // Dismissable; the delete intent only records, never re-posts.
                             sticky = false,
                             deleteAction = NotificationRefreshReceiver.ACTION_AMBIENT_DISMISSED,
                             speak = briefing.sentence,
@@ -75,11 +73,8 @@ object DueNotifier {
                 } else {
                     val example = outcome.example
                     val briefing = BriefingEngine.current
-                    // ONE sentence, characters only — never a word plus a second sentence
-                    // stacked. The briefing (about the user's actual day, never bent around an
-                    // SRS word) carries the line when it exists; recall belongs to the
-                    // course-authored cloze or bare word behind it, and to Reveal — which
-                    // shows the due card (word + meaning) whether or not the word was visible.
+                    // ONE sentence, hanzi only, never two stacked. Recall lives in the cloze,
+                    // the bare word, and Reveal (which shows the due card either way).
                     val body = briefing?.sentence
                         ?: example?.sentence
                         ?: example?.hanzi

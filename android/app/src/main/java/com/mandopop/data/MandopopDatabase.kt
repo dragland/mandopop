@@ -187,13 +187,10 @@ interface CardContentDao {
      * fragment scavenged out of a sentence — excluding them is the honest version of that.
      */
     /**
-     * The most-forgotten due words: the notification prefers whichever of them can be shown
-     * inside an i+1 sentence (a single-candidate query once locked the surface to bare-word
-     * mode because 选择 has no studied sentence). Grouped per card so a multi-prompt card
-     * cannot eat two candidate slots, and tie-broken by card id — the repo's own history says
-     * what unordered queries do (twelve rows changed value between runs), and here a tie
-     * swapping between the engine's resolution and the notifier's would silently strand the
-     * generated sentence.
+     * The most-forgotten due words; callers walk them for one an i+1 sentence can carry.
+     * Grouped per card (a multi-prompt card must not eat two slots) and tie-broken by card id
+     * — resolution runs more than once per pull, and a tie swapping between runs would
+     * silently strand the display.
      */
     @Query(
         """
@@ -209,11 +206,9 @@ interface CardContentDao {
     suspend fun dueExamples(boundaryMs: Long, limit: Int): List<CardContentEntity>
 
     /**
-     * Studied sentences containing a word, for the notification's i+1 cloze. Unsuspended rows
-     * only — a sentence from an unreached lesson is not fair context. The `LIKE` is the whole
-     * targeting mechanism on purpose: it finds every sentence *containing* the word without the
-     * `==target==` parser change (a `CardParser.VERSION` bump re-reads the deck at ~940 billed
-     * documents), and the display-time i+1 filter does the quality control.
+     * Studied sentences containing a word, for the i+1 cloze. Unsuspended only (an unreached
+     * lesson is not fair context). LIKE on purpose: avoids the `==target==` parser change and
+     * its ~940-billed-read `CardParser.VERSION` bump; the i+1 filter does quality control.
      */
     @Query(
         """
@@ -253,15 +248,10 @@ data class FrontierWord(
 @Dao
 interface FrontierDao {
     /**
-     * Headwords whose lesson is entirely suspended. Sentences are excluded — a frontier *word* can
-     * be introduced with a gloss; a whole unstudied sentence cannot. The sound-only exclusion is
-     * carried here per the shared-predicate rule, not merely inherited from
-     * [CardContentDao.deleteSoundOnlyCards]: sound-only cards for un-reached sounds are exactly
-     * the fully-suspended cards this query selects, and a legacy mnemonic-scraped row surviving
-     * until the next sync would otherwise be served as a "frontier word".
-     *
-     * Not filtered against `known_words` here: the same hanzi can sit on a live card and a
-     * suspended one, and "frontier" must mean *un-learned* — callers subtract the known set.
+     * Headwords whose lesson is entirely suspended. Sentences excluded; SOUND_ONLY carried
+     * per the shared-predicate rule (fully-suspended sound cards are exactly what this query
+     * would otherwise select). Not filtered against `known_words` — callers subtract, since
+     * one hanzi can sit on both a live and a suspended card.
      */
     @Query(
         """
@@ -336,8 +326,7 @@ abstract class MandopopDatabase : RoomDatabase() {
          * so pasting Room's own statement is the only way to be sure. `ALTER TABLE ADD COLUMN` is
          * not idempotent, unlike its neighbour — re-registering this migration would throw.
          */
-        // Internal, not private: MigrationTest must pass the real object to Room 2.7's
-        // MigrationTestHelper, which no longer discovers registered migrations on its own.
+        // Internal: MigrationTestHelper (Room 2.7+) must be handed the real object.
         internal val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

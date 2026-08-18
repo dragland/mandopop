@@ -18,19 +18,19 @@ object StatsTail {
     @Volatile
     private var stored: Pair<String, Long>? = null
 
-
     val line: String?
         get() = stored?.takeIf { sameLocalDay(it.second) }?.first
 
     /**
-     * One progress number, on purpose. Coverage — SUBTLEX mass of `known_words` over the whole
-     * corpus — is the single tracked truth; a second memory-decay count was built, audited by
-     * its owner down from 1150 to 264, and then deleted, because a stat whose denominator
-     * needs a footnote is a bad ambient stat. Minutes is today's effort, a different axis.
-     * Coverage is front-loaded by Zipf (this account's top-10 words carry 26 of its 51
-     * points) — token coverage, never comprehension.
+     * One progress number on purpose: coverage (SUBTLEX mass of `known_words` / corpus mass).
+     * A stat whose denominator needs a footnote has no place on an ambient surface. Minutes is
+     * effort, an orthogonal axis. Zipf-front-loaded: token coverage, never comprehension.
      */
     suspend fun refresh(context: Context) {
+        // Reuse a fresh line: the UsageStats scan covers since-midnight and grows all day.
+        stored?.let {
+            if (sameLocalDay(it.second) && System.currentTimeMillis() - it.second < FRESH_MS) return
+        }
         val database = MandopopDatabase.get(context)
         val known = database.frontierDao().knownHanzi()
         if (known.isEmpty()) {
@@ -44,8 +44,7 @@ object StatsTail {
             return
         }
         val line = buildString {
-            // One decimal on purpose: coverage moves ~0.1% per learned word, and integer
-            // rounding would hide a week of progress. 认识, not 看得懂 — recognition is what
+            // One decimal: coverage moves ~0.1%/word. 认识 not 看得懂 — recognition is what
             // token coverage measures.
             append("日常中文 ≈%.1f%% 认识".format(knownMass / totalMass * 100.0))
             UsageMinutes.today(context)?.takeIf { it > 0 }?.let {

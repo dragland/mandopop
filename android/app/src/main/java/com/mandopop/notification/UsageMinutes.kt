@@ -67,9 +67,8 @@ object UsageMinutes {
         val startOfDay = LocalDate.now(zone).atStartOfDay(zone).toInstant().toEpochMilli()
         val now = System.currentTimeMillis()
         return try {
-            // The window reaches back past midnight so a session straddling it (resumed 23:50,
-            // paused 00:20) is seen whole and *clipped* to the day, rather than its lone PAUSED
-            // event being dropped for lack of a matching RESUMED.
+            // Reach back past midnight so a straddling session is seen whole and clipped,
+            // not dropped for its unmatched PAUSED event.
             val events = manager.queryEvents(startOfDay - STRADDLE_LOOKBACK_MS, now) ?: return null
             var totalMs = 0L
             val resumedAt = HashMap<String, Long>()

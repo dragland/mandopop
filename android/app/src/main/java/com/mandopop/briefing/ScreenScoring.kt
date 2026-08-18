@@ -58,13 +58,9 @@ object ScreenScoring {
     }
 
     /**
-     * The stat lines are themselves Chinese — chrome the user reads dozens of times a day is
-     * free study material. Pattern shared with the coverage stat: subject · ≈percent · verb.
-     * 认识 "recognize" is the verb because that is what token coverage measures — 看得懂 would
-     * claim comprehension, the exact overclaim the flavor docs above forbid. 说得出 "can get it
-     * said" is the V-得-C potential form (会说 reads as "40% of the screen can talk").
-     * Integer percent on purpose: glance-data over one screen is noisy; the coverage stat keeps
-     * a decimal because it moves ~0.1% per learned word.
+     * Chrome is study material, so the lines are Chinese: subject · ≈percent · verb. 认识 not
+     * 看得懂 (recognition, not a comprehension claim); 说得出 not 会说 (会 modals the person —
+     * "40% of the screen can talk"). Integer percent: glance data is noisy.
      */
     fun line(score: Score): String = when (score.flavor) {
         Flavor.READABLE -> "屏幕 ≈${score.percentKnown}% 认识"

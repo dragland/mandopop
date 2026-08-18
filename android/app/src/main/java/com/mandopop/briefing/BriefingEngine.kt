@@ -23,14 +23,11 @@ import java.time.ZoneId
 /**
  * The daily-briefing orchestrator: gather inputs → code picks → compose → verify → show.
  *
- * Computed lazily on shade-pull (spec.md §4.4/§5): opening the shade is the only moment the
- * sentence is looked at, so that is when it is made — fresh exactly at glance time, ~zero cost
- * otherwise. Results are cached in memory keyed by an input signature; clearing a notification,
- * an event passing, the local day rolling over, or the vocabulary growing regenerates — an
- * unchanged moment does not, and generation is additionally floored at one per five minutes
- * because SystemUI announces unlocks and volume presses too. Nothing is persisted: after
- * process death the briefing is simply absent until the next pull. Failures log loudly
- * (rejections included) — this device's only debugger is logcat.
+ * Computed lazily on shade-pull: fresh at glance time, ~zero cost otherwise. In-memory caches
+ * only, keyed by an input signature (inputs, local date, vocabulary size); generation is also
+ * floored at one per five minutes because SystemUI window events include unlocks and volume
+ * presses, not just shades. Nothing persists; failures log loudly — logcat is this device's
+ * only debugger.
  */
 object BriefingEngine {
     private const val TAG = "MandopopBriefing"
@@ -48,11 +45,9 @@ object BriefingEngine {
     enum class Source { MODEL, TEMPLATE }
 
     /**
-     * The notification shows [sentence] hanzi-only — no glosses, ever. The introduction-rule
-     * gloss for the frontier word was tried and killed: `known_words` mirrors Traverse, and
-     * this user's Chinese predates the course, so "un-learned by the deck" routinely meant
-     * "known to the human" — and an English gloss beside a recallable word wrecks the recall.
-     * A frontier word may still appear in-sentence, unglossed (noticing without the answer).
+     * Hanzi-only, no glosses: `known_words` mirrors Traverse and this user's Chinese predates
+     * the course, so "un-learned by the deck" often means "recallable by the human" — an
+     * English gloss there wrecks recall. A frontier word may appear in-sentence, unglossed.
      */
     data class Briefing(
         val sentence: String,
@@ -99,17 +94,15 @@ object BriefingEngine {
             ?.first
 
     /**
-     * One llama.cpp composer per process, rebuilt when the model file's identity changes —
-     * name, mtime and size, so a re-push reloads (and a transient init failure gets a fresh
-     * chance) instead of stale weights staying silently resident. llama.cpp mmaps the file, so
-     * overwriting a *currently loaded* model in place is still undefined until this rescan
-     * runs; push under a new name when in doubt. The previous runtime is closed first.
+     * One composer per process, rebuilt when the model file identity (name+mtime+size)
+     * changes, so a re-push reloads and a transient init failure retries. llama.cpp mmaps the
+     * file — overwriting a loaded model in place is undefined; push under a new name.
      */
     @Synchronized
     fun composerFor(context: Context): LlamaComposer {
         val appContext = context.applicationContext
-        // The app must own this dir: one created by `adb shell mkdir` belongs to `shell` and
-        // the app's uid cannot traverse it — the files look missing while sitting right there.
+        // App-created so the app's uid owns it: a shell-made dir is untraversable and the
+        // files inside look missing.
         val dir = File(appContext.getExternalFilesDir(null), "models").apply { mkdirs() }
         val gguf = dir.listFiles { f -> f.isFile && f.name.endsWith(".gguf") }
             ?.minByOrNull { it.name }
@@ -133,10 +126,7 @@ object BriefingEngine {
         current?.let { dismissedGenerationMs = it.generatedAtMs }
     }
 
-    /**
-     * Releases everything the feature holds — the resident model (~1.6GB), caches, signature —
-     * so the toggle is a real power switch, not a display filter. Cheap to call repeatedly.
-     */
+    /** The toggle's power switch: frees the resident model and all caches. Idempotent. */
     @Synchronized
     fun onDisabled() {
         composer?.close()
@@ -156,16 +146,12 @@ object BriefingEngine {
         val appContext = context.applicationContext
         scope.launch(Dispatchers.Default) {
             try {
-                // The score is glance-time data about *this* screen — it must recompute and
-                // repost even when the briefing's inputs haven't moved, which is why it lives
-                // outside the signature cache.
+                // Glance-time data about *this* screen — recomputed outside the signature cache.
                 val scoreChanged = runCatching { refreshScreenScore(appContext) }
                     .getOrDefault(false)
                 val briefingChanged = refresh(appContext)
-                // One sync, one example resolution — for the notification display only. The
-                // briefing is deliberately not bent around the due word: weaving a random SRS
-                // word into "your day" produced 今天你要选择家-grade sentences, and recall
-                // belongs to the course-authored cloze and Reveal, not the composed line.
+                // Example resolved once, for display only — the briefing is never bent around
+                // the due word; recall belongs to the cloze and Reveal.
                 val sync = TraverseSync(appContext)
                 val signedIn = sync.isSignedIn()
                 val example = if (signedIn) runCatching { sync.localExample() }.getOrNull() else null
@@ -187,10 +173,7 @@ object BriefingEngine {
         }
     }
 
-    /**
-     * Rescores the current screen snapshot: readable-% for Chinese screens, sayable-% for
-     * English ones. Returns whether the rendered line changed.
-     */
+    /** Rescores the snapshot (readable-% or sayable-%); returns whether the line changed. */
     suspend fun refreshScreenScore(context: Context): Boolean =
         withContext(Dispatchers.Default) {
             mutex.withLock {
@@ -219,10 +202,8 @@ object BriefingEngine {
         }
 
     /**
-     * Regenerates if the inputs moved (or [force]). Returns whether anything changed — callers
-     * repost the notification only on true, so an idle shade-pull never flickers it. Hops to
-     * [Dispatchers.Default] itself: the calendar provider query and shade snapshot must not
-     * run on main.
+     * Regenerates if inputs moved (or [force]); returns whether anything changed so callers
+     * only repost on true. Hops to Default itself — the calendar query must not run on main.
      */
     suspend fun refresh(context: Context, force: Boolean = false): Boolean =
         withContext(Dispatchers.Default) {
@@ -231,10 +212,7 @@ object BriefingEngine {
 
     private suspend fun refreshLocked(context: Context, force: Boolean): Boolean {
         if (!SettingsStore(context).snapshot().briefingEnabled) return false
-        // Generation is the battery cost — SystemUI announces volume presses and every unlock,
-        // not just shades, and an active phone's notification set churns enough that the input
-        // signature alone regenerated dozens of times a day (audited at ~5-8% of the battery).
-        // Today's briefing staying put for a few minutes is fine; force bypasses.
+        // Generation is the battery cost; the signature alone churns dozens of times a day.
         stored?.let {
             if (!force && sameLocalDay(it.generatedAtMs) &&
                 System.currentTimeMillis() - it.generatedAtMs < REGEN_MIN_INTERVAL_MS
@@ -249,10 +227,8 @@ object BriefingEngine {
             screen = ScreenTextMonitor.snapshot,
         )
         val database = MandopopDatabase.get(context)
-        // The signature folds in the local date (yesterday's "今天…" must not survive the
-        // rollover just because the shade looks the same) and the vocabulary size (the
-        // no-known-words outcome must retry once a sync has landed, not wait for an input
-        // to move).
+        // Date in the signature: yesterday's 今天 must not survive rollover. Vocab count in:
+        // the no-known-words outcome must retry once a sync lands.
         val knownCount = database.knownWordDao().count()
         val today = LocalDate.now(ZoneId.systemDefault())
         val signature = (inputs.signature() * 31 + knownCount) * 31 + today.hashCode()
@@ -263,9 +239,8 @@ object BriefingEngine {
             finish(signature, null, "no known words yet — sign in and sync first", emptyList())
             return true
         }
-        // A word can sit on two cards — one live (so it is known) and one still-suspended (so
-        // it matches the frontier query). The frontier's whole meaning is "un-learned"; the
-        // filter keeps the prompt's introduction slot honest.
+        // A word can be on a live card (known) and a suspended one (frontier row) at once;
+        // frontier means un-learned, so subtract.
         val frontier = database.frontierDao().frontierWords().filterNot { it.hanzi in known }
 
         val rejections = mutableListOf<String>()
@@ -279,8 +254,7 @@ object BriefingEngine {
             return true
         }
 
-        // Logcat is the record of what the sentence was composed FROM — without it, "why does
-        // it keep saying home" is undiagnosable.
+        // The record of what the sentence was composed FROM — sole diagnosability.
         Log.i(TAG, "composing: gist=\"${plan.gist}\" words=${plan.words}")
 
         suspend fun verdictOf(sentence: String) =
@@ -294,9 +268,8 @@ object BriefingEngine {
             rejections += "model not installed — adb push to ${modelStatus.expectedPath}"
         } else {
             if (modelStatus is ComposerStatus.Failed) {
-                // Noted but not terminal: generate() re-attempts the load, so a transient
-                // init failure (driver refusal at boot, memory pressure mid-load) cannot
-                // latch the model off for the process lifetime behind a silent template.
+                // Not terminal: generate() re-attempts the load, so a transient init failure
+                // cannot latch the model off behind a silent template.
                 rejections += "previous engine failure, retrying: ${modelStatus.message}"
             }
             var avoid = emptyList<String>()
@@ -378,8 +351,7 @@ object BriefingEngine {
     ) {
         lastSignature = signature
         stored = briefing
-        // Loud on purpose: logcat is this device's only debugger, and a silently absent
-        // briefing is indistinguishable from a broken one.
+        // A silently absent briefing is indistinguishable from a broken one.
         if (briefing == null) {
             Log.w(TAG, "no briefing: $outcome; rejections=$rejections")
         } else {

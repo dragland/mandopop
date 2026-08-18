@@ -5,20 +5,13 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * The deterministic pre-step of the briefing pipeline: *code picks, model composes, verifier
- * enforces* (spec.md §5).
+ * The "code picks" step: choose the salient item, extract its content words, map them into
+ * known vocabulary, pick ≤1 frontier word. The model sees only a hard-capped gist plus chosen
+ * words — prompt-size discipline and a smaller injection surface, but a push title is still
+ * attacker-authored prose: the actual bound on a hostile push is the verifier. Do not relax
+ * it on the theory that prompts are clean.
  *
- * This is the "code picks" part. It chooses the salient item of the user's day, extracts its
- * content words in code, maps them into vocabulary the user actually has, and selects at most one
- * frontier word. The model sees only a short gist — one field-extracted, hard-capped title, never
- * a wall of notification text — plus the chosen Chinese words, which is the prompt-size
- * discipline a 2B-class model needs and shrinks the injection surface. It does not eliminate it:
- * a push *title* is still attacker-authored prose inside the prompt, and the actual bound on a
- * hostile push is the verifier — nothing outside known vocabulary renders, whatever the model
- * was talked into. Do not relax the verifier on the theory that prompts are clean.
- *
- * Pure JVM: Android never appears, the dictionary arrives as a function, so the whole selection
- * policy is unit-testable.
+ * Pure JVM; the dictionary arrives as a function, so the policy is unit-testable.
  */
 object BriefingPicker {
 
@@ -47,14 +40,10 @@ object BriefingPicker {
     ): Plan? {
         val frontierByGlossWord = glossIndex(frontier)
 
-        // Pass 1 — sources that can actually say something in the user's vocabulary, ranked by
-        // how much they say about the day: timed events (actual plans), then notifications,
-        // then all-day banner events, then the screen. All-day events rank below notifications
-        // because they are ambient wallpaper, not plans — a Google Calendar working-location
-        // banner titled "Home" maps beautifully to 家 and won the salience contest every
-        // single day, making every briefing 今天在家. Every candidate in each tier gets a
-        // chance: locking onto the first event handed the model an untranslatable name while
-        // an expressible notification sat right behind it.
+        // Pass 1 — expressible sources, ranked: timed events > notifications > all-day
+        // banners > screen. Banners rank below notifications (a daily "Home" working-location
+        // event maps perfectly to 家 and otherwise wins every day). Every candidate in a tier
+        // gets a chance before the tier below.
         for (event in inputs.events.filter { !it.allDay }) {
             buildPlan(
                 kind = SourceKind.CALENDAR,
@@ -105,8 +94,7 @@ object BriefingPicker {
                 viableWithoutTopic = false,
             )?.let { return it }
         }
-        // Pass 2 — nothing anywhere maps. A calendar event is still briefable as pure time
-        // ("you have plans this afternoon"): true, relevant, comprehensible, boring.
+        // Pass 2 — nothing maps: the first event as pure time-of-day, correct but boring.
         inputs.events.firstOrNull()?.let { event ->
             buildPlan(
                 kind = SourceKind.CALENDAR,
@@ -240,11 +228,9 @@ object BriefingPicker {
     /** Hard cap on any untrusted text entering a prompt — one short line, never a wall. */
     private const val MAX_GIST_CHARS = 80
 
-    // Sized by the model's instruction-following, not by context (12 words ≈ 30 of 1024
-    // tokens): a 2B treats up to ~a dozen words as a palette to compose from naturally —
-    // which is the point, a richer relevant palette raises the odds the natural phrasing is
-    // already in-vocabulary and the verifier passes first try. Past ~15 the list stops
-    // steering. Still code-picked relevance, never the rejected corpus-allowlist-in-prompt.
+    // Sized by 2B instruction-following, not context (12 words ≈ 30 of 1024 tokens): up to ~a
+    // dozen words act as a palette; past ~15 the list stops steering. Code-picked relevance,
+    // never the corpus allowlist.
     private const val MAX_CONTENT_WORDS = 16
     private const val MAX_TOPIC_WORDS = 8
     private const val MAX_PROMPT_WORDS = 12

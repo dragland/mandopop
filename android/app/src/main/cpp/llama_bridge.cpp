@@ -77,10 +77,9 @@ static std::string apply_chat_template(const std::string &prompt) {
     }
     std::string formatted(buf.data(), written);
 
-    // Reasoning-tuned templates (Qwen) open the assistant turn thinking, and a short token
-    // budget gets entirely eaten by it — 0/8 on the first bench, every output an unclosed
-    // <think>. Prefilling a closed empty think block steps straight to the answer. Gated on
-    // the template actually mentioning think, so plain chat models are untouched.
+    // Reasoning-tuned templates open the assistant turn thinking, and a short token budget is
+    // entirely eaten by it. A prefilled closed think block steps straight to the answer; gated
+    // on the template mentioning think so plain chat models are untouched.
     if (std::string(tmpl).find("think") != std::string::npos) {
         formatted += "<think>\n\n</think>\n\n";
     }
@@ -127,8 +126,8 @@ Java_com_mandopop_briefing_LlamaComposer_nativeGenerate(
     llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(top_k));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature));
-    // Caller-varied (by local day): with temp 0.2 a fixed seed made identical inputs produce
-    // the identical sentence forever, which read as a caching bug from the shade.
+    // Caller-varied by local day: at temp 0.2 a fixed seed makes identical inputs produce the
+    // identical sentence forever.
     llama_sampler_chain_add(smpl, llama_sampler_init_dist((uint32_t) seed));
 
     std::string out;
