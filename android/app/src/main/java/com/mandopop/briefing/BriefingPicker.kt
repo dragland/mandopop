@@ -10,10 +10,12 @@ import java.time.ZoneId
  *
  * This is the "code picks" part. It chooses the salient item of the user's day, extracts its
  * content words in code, maps them into vocabulary the user actually has, and selects at most one
- * frontier word. The model never sees raw calendar or notification text — only the short English
- * gist and the chosen Chinese words — which is both the prompt-size discipline a 2B-class model
- * needs and the prompt-injection boundary (a spam push cannot smuggle instructions through a
- * field-extracted gist).
+ * frontier word. The model sees only a short gist — one field-extracted, hard-capped title, never
+ * a wall of notification text — plus the chosen Chinese words, which is the prompt-size
+ * discipline a 2B-class model needs and shrinks the injection surface. It does not eliminate it:
+ * a push *title* is still attacker-authored prose inside the prompt, and the actual bound on a
+ * hostile push is the verifier — nothing outside known vocabulary renders, whatever the model
+ * was talked into. Do not relax the verifier on the theory that prompts are clean.
  *
  * Pure JVM: Android never appears, the dictionary arrives as a function, so the whole selection
  * policy is unit-testable.
@@ -148,13 +150,14 @@ object BriefingPicker {
         ).firstOrNull()
 
     private fun calendarGist(event: CalendarEvent, zone: ZoneId): String {
-        if (event.allDay) return "today's calendar event: \"${event.title}\""
+        val title = event.title.take(MAX_GIST_CHARS)
+        if (event.allDay) return "today's calendar event: \"$title\""
         val time = Instant.ofEpochMilli(event.beginMs).atZone(zone)
-        return "today's calendar event: \"${event.title}\" at %d:%02d".format(time.hour, time.minute)
+        return "today's calendar event: \"$title\" at %d:%02d".format(time.hour, time.minute)
     }
 
     private fun notificationGist(notification: ActiveNotification): String {
-        val subject = notification.title.ifBlank { notification.text.take(80) }
+        val subject = notification.title.ifBlank { notification.text }.take(MAX_GIST_CHARS)
         return "a pending notification from ${notification.appLabel}: \"$subject\""
     }
 
@@ -202,6 +205,9 @@ object BriefingPicker {
     private const val MORNING = "上午"
     private const val AFTERNOON = "下午"
     private const val EVENING = "晚上"
+
+    /** Hard cap on any untrusted text entering a prompt — one short line, never a wall. */
+    private const val MAX_GIST_CHARS = 80
 
     private const val MAX_CONTENT_WORDS = 8
     private const val MAX_TOPIC_WORDS = 3

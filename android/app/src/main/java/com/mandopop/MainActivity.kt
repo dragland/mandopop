@@ -3,6 +3,7 @@ package com.mandopop
 import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -106,11 +107,25 @@ class MainActivity : ComponentActivity() {
     // Same resume-time pattern as the accessibility grant: both are given in system settings
     // with no callback, so they are simply re-read whenever the user comes back.
     private var notificationListenerEnabled by mutableStateOf(false)
+    private var notificationListenerConnected by mutableStateOf(false)
     private var calendarGranted by mutableStateOf(false)
 
     private val calendarPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             calendarGranted = granted
+            // Permanently denied ("don't ask again") makes launch() return false instantly with
+            // no dialog — a dead end with zero feedback. Send the user where the switch actually
+            // is, the same move the accessibility card makes.
+            if (!granted &&
+                !shouldShowRequestPermissionRationale(Manifest.permission.READ_CALENDAR)
+            ) {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", packageName, null),
+                    ),
+                )
+            }
         }
 
     // Sign-in posts the first notification before the permission dialog is answered, so it gets
@@ -148,6 +163,7 @@ class MainActivity : ComponentActivity() {
                 requestNotificationPermission = ::requestNotificationPermission,
                 playPreview = { tts.speak("你好") },
                 notificationListenerEnabled = notificationListenerEnabled,
+                notificationListenerConnected = notificationListenerConnected,
                 calendarGranted = calendarGranted,
                 openNotificationAccessSettings = {
                     startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
@@ -163,6 +179,10 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         serviceEnabled = isLookupServiceEnabled()
         notificationListenerEnabled = NotificationCatcher.isEnabled(this)
+        notificationListenerConnected = NotificationCatcher.isConnected()
+        // Granted-but-unbound recovers with a rebind request far more often than with the
+        // user re-toggling access in system settings.
+        NotificationCatcher.requestRebindIfNeeded(this)
         calendarGranted = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.READ_CALENDAR,
@@ -215,6 +235,7 @@ private fun MandopopSettingsApp(
     requestNotificationPermission: () -> Unit,
     playPreview: () -> Unit,
     notificationListenerEnabled: Boolean,
+    notificationListenerConnected: Boolean,
     calendarGranted: Boolean,
     openNotificationAccessSettings: () -> Unit,
     requestCalendarPermission: () -> Unit,
@@ -322,6 +343,7 @@ private fun MandopopSettingsApp(
                 SectionLabel("Daily briefing")
                 BriefingPanel(
                     listenerEnabled = notificationListenerEnabled,
+                    listenerConnected = notificationListenerConnected,
                     calendarGranted = calendarGranted,
                     onOpenNotificationAccess = openNotificationAccessSettings,
                     onRequestCalendar = requestCalendarPermission,

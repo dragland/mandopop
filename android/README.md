@@ -82,8 +82,9 @@ DataStore; the password itself is never persisted. Sign Out clears the token, th
   due notification away, and after an app update. A routine sync is one Firestore read — the full deck is pulled only when
   the day rolls over, the day's review count changes, or the mirror is over 6h stale.
 - The notification shows the bare hanzi of a due card, with a `Reveal` action for the
-  reading and meaning. It is silent, cannot be swiped away while cards are due, and
-  disappears on its own once the queue is empty.
+  reading and meaning. It is silent and cannot be swiped away while cards are due. Once
+  the queue is empty it disappears — unless a daily briefing is available, in which case
+  a dismissable "All caught up" line with the briefing sentence takes its place.
 - Local state lives in `mandopop.db` and is a cache of remote state, so a schema change
   with no written migration drops it and the next sync refills it. `card_content` is the
   exception and now has a real migration: refilling it costs ~940 reads on Traverse's
@@ -96,6 +97,22 @@ Traverse's side breaks sync, which is why the integration is kept thin and confi
 The Firebase web API key in `TraverseAuth` is a project identifier, not a credential — Google
 serves it in the clear to every web client and it authorises nothing by itself. No secret is
 needed to build or run this repo.
+
+## Daily briefing
+
+One short Chinese sentence about the day, shown in the due notification's expanded view
+and regenerated when the notification shade is pulled down.
+
+- Inputs: today's remaining calendar events (`READ_CALENDAR`), the notifications
+  currently in the shade (notification access, granted in system settings via the
+  Daily briefing panel), and a rolling snapshot of the foreground app's text from the
+  accessibility tree. All three are read at generation time and stored nowhere.
+- Composed on-device by Gemini Nano (ML Kit GenAI Prompt API, running in AICore) with
+  slot-filled templates as fallback; every candidate sentence is segmented and checked
+  against the known-words index before it is shown. Nothing read from the calendar,
+  the shade, or the screen ever leaves the phone.
+- The settings panel doubles as a test bench: model status and download, a
+  "Generate now" button, and the raw model output with every verifier rejection.
 
 Lookups run whenever the accessibility service is on. There is deliberately no
 in-app switch for them — the service is the one control, and a second one would
@@ -127,3 +144,8 @@ After each install on a test device:
    confirm the overlay follows the saved setting.
 7. Tap pronunciation repeatedly and confirm speech starts, restarts, and stops
    cleanly when the service is disabled.
+8. Grant Calendar and Notification access in the Daily briefing panel, tap
+   `Generate now`, and confirm a sentence appears with its debug readout; pull
+   down the shade and confirm the notification's expanded view carries it. Clear
+   all due cards and confirm the dismissable "All caught up" line replaces the
+   due notification.

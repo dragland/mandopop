@@ -7,6 +7,7 @@
 - Shared JS: `lib/normalize.js` handles lookup variants; `lib/pinyin.js` handles pinyin and CEDICT English key extraction.
 - Dictionary: `npm run dict:build` (= `scripts/preprocess_cedict.js`) reads committed `cedict_ts.u8` + `subtlex_ch.tsv` and regenerates `cedict.json` + `dict_version.js`. Both are generated *and* committed. Android: `cd android && ./gradlew buildDictionary`.
 - Android lookup: `TextSelectionService` -> `DictionaryRepository` -> overlay/TTS.
+- Android daily briefing: `briefing/` (`CalendarSource` + `NotificationCatcher` + `ScreenTextMonitor` -> `BriefingPicker` -> `GeminiNanoComposer`/`TemplateComposer` -> `BriefingVerifier` -> `BriefingEngine`) -> `DueNotifier` expanded view; triggered from `TextSelectionService` on shade-pull.
 - Android Traverse sync: `traverse/` (auth, REST, orchestration) -> `data/` (Room mirror) -> `notification/DueNotifier`; driven by `work/SyncWorker`, `TraverseExitWatcher`, `NotificationRefreshReceiver`.
 - Parity tests: browser and Android share cases from `testdata/` (`segmentation_cases.tsv` has no Android reader yet).
 
@@ -69,14 +70,14 @@
 
 ## Daily Briefing (Android)
 
-- `briefing/` is the pipeline: `CalendarSource` + `NotificationCatcher` + `ScreenTextMonitor` (inputs) -> `BriefingPicker` (code picks) -> `GeminiNanoComposer` / `TemplateComposer` -> `BriefingVerifier` -> `BriefingEngine` -> `DueNotifier` expanded view. Picker, templates, verifier and prompt are pure JVM and unit-tested; keep them free of Android types.
+- Pipeline wiring is in Entry Points. Picker, templates, verifier and prompt are pure JVM and unit-tested; keep them free of Android types.
 - **The verifier is the guarantee, not the prompt.** Every candidate sentence — model or template — is segmented with `Segmenter` and every word must be in `known_words` or be the plan's single frontier word. The known-words list never enters a prompt (small models can't obey allowlists; the list only grows); the one retry carries a short "do not use" list, which is followable. The model never grades itself.
 - Notification text is **untrusted input** (a push can carry prompt injection). Code extracts fields; raw notification walls are never pasted into a prompt. The verifier bounds damage regardless.
 - Nothing is persisted: calendar and `getActiveNotifications()` are queried at generation time, the screen snapshot and the briefing cache are in-memory only. Do not add storage here — that is the purity rule, and `weaveDisabledSites` remains the only device-fact precedent.
 - The screen snapshot must exist **before** the shade opens (once open, the active window *is* the shade) — hence the rolling capture on app-switch/content-change in `TextSelectionService`, throttled in `ScreenTextMonitor`. The shade-pull trigger is the SystemUI `TYPE_WINDOW_STATE_CHANGED` event; `TraverseExitWatcher` still treats SystemUI as transparent — the two consumers of that event must not interfere.
 - `NotificationCatcher` is a read-only `NotificationListenerService`: it never posts, cancels, or rewrites anything (listeners cannot rewrite other apps' pushes anyway — measured and rejected in spec.md §2).
-- ML Kit `genai-prompt` ships Kotlin 2.2 metadata — this is why the project is on Kotlin 2.2.10 / KSP 2.2.10-2.0.2 / Room 2.7.2. Do not downgrade any of the three; Room 2.6.1 dies under KSP2 with "unexpected jvm signature V".
-- Gemini Nano runs in AICore under Private Compute: no inference-time network, so no-content-egress holds. The one-time model download is a dev-time cost, triggered from the settings panel.
+- ML Kit `genai-prompt` ships Kotlin 2.2 metadata — this is why the project is on Kotlin 2.2.10 / KSP 2.2.10-2.0.2 / Room 2.7.2. Do not downgrade any of the three; Room 2.6.1 dies under KSP2 with "unexpected jvm signature V". Room 2.7 also generates Kotlin DAO impls by default: no abstract `val` DAO getters, no nullable-collection return types.
+- Gemini Nano runs in AICore under Private Compute: no inference-time network, so no-content-egress holds. The one-time model download is a dev-time cost, triggered from the settings panel. **AICore blocks inference unless mandopop is the top foreground app** (`BACKGROUND_USE_BLOCKED`) — the shade-pull trigger (SystemUI foreground) can never legally reach Nano, so in production that path falls to templates; only the settings panel's "Generate now" exercises the model. The audition bench labels the error code so this is visible, not a mystery "model error". Any real Nano deployment needs foreground pre-generation, or a bundled model (MediaPipe Gemma / llama.cpp) that has no such restriction.
 - Zero-due now posts a dismissable ambient line (briefing, no `deleteIntent`) instead of cancelling — with no briefing it still cancels. The due-count re-post loop is unchanged.
 - The settings screen's "Daily briefing" panel is the model-audition bench: it shows raw model output and every verifier rejection on purpose. Keep it verbose until the composer decision (Nano vs bundled Gemma/Qwen) is made.
 
@@ -88,8 +89,8 @@
 - Do not darken contrast below current values: defs `#888` on `#0d0d0d`, icons `#999` on `#1a1a1a`.
 - The settings screen leads with whether lookups actually work, read from `ENABLED_ACCESSIBILITY_SERVICES` on each resume (no callback exists). Without it the app looks identical whether or not it is functional — do not reduce this back to a plain "open settings" button.
 - Every toggle carries supporting text. Labels alone cannot explain "Playful misses".
-- The due notification shows characters only; the reading and meaning sit behind Reveal. Showing them upfront defeats recall practice.
-- `setOngoing(true)` does not prevent dismissal on Android 14+. Persistence is the `deleteIntent` re-post, which stops at zero due.
+- The due notification shows characters only in the collapsed view; reading and meaning sit behind Reveal. Showing them upfront defeats recall practice. The one exception is the expanded view's briefing frontier word, glossed on purpose — un-learned, so no recall to defeat.
+- `setOngoing(true)` does not prevent dismissal on Android 14+. Persistence is the `deleteIntent` re-post, which stops at zero due (where the briefing ambient line, if any, takes over — dismissable, no re-post).
 - A posted notification stores its icon as a bare resource id, and adding drawables shifts ids — hence the re-post on `MY_PACKAGE_REPLACED`.
 - Changing `android:icon` needs a device **reboot** to show up: `system_server` caches parsed manifest data per package. Restarting SystemUI does not clear it, and force-stopping SystemUI can destroy the user's wallpaper.
 - The popup mirrors the Android panel's copy: section "Connected courses", header = MB logo + "Mandarin Blueprint" + status (Needs attention > Linked > Not linked), supporting line "Sync course progress and spaced-repetition cards.", button "Sign in with Traverse", and the same sign-in error strings. Change wording on both platforms or neither.

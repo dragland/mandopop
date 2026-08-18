@@ -14,8 +14,10 @@ import androidx.core.app.NotificationManagerCompat
  * so "woke up to fifty, cleared them by lunch" needs zero buffering — each briefing generation
  * reads what is actually still pending. This service never posts, cancels, mutates or stores
  * anything, and notification text goes only into the on-device pick/compose/verify pipeline —
- * treated as *untrusted input* there (a push can contain anything, including prompt injection, so
- * code extracts fields and raw walls of text are never pasted into a model prompt).
+ * treated as *untrusted input* there. Fields are extracted and capped, and only a short gist
+ * built from the title reaches a model prompt — but a push title is still attacker-authored
+ * prose, so the real bound on a hostile push is the verifier: whatever the model does, nothing
+ * outside the user's known vocabulary ever renders.
  */
 class NotificationCatcher : NotificationListenerService() {
 
@@ -25,12 +27,15 @@ class NotificationCatcher : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
-        live = null
+        // Identity-guarded: on a rebind after a crash or update, the old instance's teardown can
+        // run after the new one's onListenerConnected — clearing unconditionally would null out
+        // a healthy listener and the briefing would silently see an empty shade until rebind.
+        if (live === this) live = null
         Log.i(TAG, "notification listener disconnected")
     }
 
     override fun onDestroy() {
-        live = null
+        if (live === this) live = null
         super.onDestroy()
     }
 
@@ -87,8 +92,27 @@ class NotificationCatcher : NotificationListenerService() {
             NotificationManagerCompat.getEnabledListenerPackages(context)
                 .contains(context.packageName)
 
-        fun componentName(context: Context): ComponentName =
-            ComponentName(context, NotificationCatcher::class.java)
+        /**
+         * Whether the listener is actually bound right now. Granted-but-unbound is the classic
+         * post-crash state and must never masquerade as an empty shade — surfaces that report on
+         * the briefing distinguish the two.
+         */
+        fun isConnected(): Boolean = live != null
+
+        /**
+         * The documented recovery for granted-but-unbound: ask the system to rebind. Cheap and
+         * idempotent; called opportunistically (app resume) so the user's fallback of re-toggling
+         * access in system settings is a last resort, not the first.
+         */
+        fun requestRebindIfNeeded(context: Context) {
+            if (!isEnabled(context) || isConnected()) return
+            try {
+                requestRebind(ComponentName(context, NotificationCatcher::class.java))
+                Log.i(TAG, "requested notification listener rebind")
+            } catch (error: Exception) {
+                Log.w(TAG, "listener rebind request failed", error)
+            }
+        }
 
         /**
          * The shade right now, or empty when access is ungranted / the listener is not yet bound.

@@ -117,8 +117,8 @@ dependencies {
     implementation("androidx.savedstate:savedstate:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
+    // room-ktx merged into room-runtime as of 2.7 — no separate artifact needed.
     implementation("androidx.room:room-runtime:2.7.2")
-    implementation("androidx.room:room-ktx:2.7.2")
     ksp("androidx.room:room-compiler:2.7.2")
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")

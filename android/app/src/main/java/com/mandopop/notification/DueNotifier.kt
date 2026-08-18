@@ -49,8 +49,11 @@ object DueNotifier {
             // the old rule holds — clearing the queue clears the notification, and reaching zero
             // feels like finishing rather than earning a "well done" that sits in the shade.
             is SyncOutcome.Success -> {
-                val briefing = BriefingEngine.current
                 if (outcome.dueCount == 0) {
+                    // Dismissal is remembered per generation in BriefingEngine, because reposts
+                    // arrive through many doors (worker, resume, shade-pull) and none of them may
+                    // resurrect a line the user swiped away. A newly generated briefing shows.
+                    val briefing = BriefingEngine.ambientBriefing()
                     if (briefing == null) {
                         cancel(context)
                     } else {
@@ -61,15 +64,21 @@ object DueNotifier {
                             needsAttention = false,
                             reveal = null,
                             expandedText = briefing.expandedBlock(),
-                            // Dismissable: at zero due there is nothing to nag about, so the
-                            // ambient line must not resurrect itself from its own delete intent.
+                            // Dismissable: at zero due there is nothing to nag about. The delete
+                            // intent only records the dismissal — it never re-posts.
                             sticky = false,
+                            deleteAction = NotificationRefreshReceiver.ACTION_AMBIENT_DISMISSED,
                         )
                     }
                 } else {
                     val cards = if (outcome.dueCount == 1) "card" else "cards"
                     val example = outcome.example
                     val body = example?.hanzi ?: "${outcome.liveCount} cards in rotation"
+                    // A briefing that happens to contain the due word would put the recall target
+                    // inside a disambiguating sentence right under the prompt — a soft reveal.
+                    // Drop it from this one view rather than trying to steer the composer.
+                    val briefing = BriefingEngine.current
+                        ?.takeIf { example == null || !it.sentence.contains(example.hanzi) }
                     post(
                         context,
                         title = "${outcome.dueCount} $cards due today",
@@ -139,12 +148,16 @@ object DueNotifier {
      */
     fun showAnswer(context: Context, dueCount: Int, hanzi: String, gloss: String) {
         val cards = if (dueCount == 1) "card" else "cards"
+        // The answer is face-up here, so the briefing needs no due-word filter — but it stays in
+        // the expanded view so revealing doesn't make the notification visibly lose a limb.
+        val briefing = BriefingEngine.current
         post(
             context,
             title = "$hanzi — $dueCount $cards due today",
             text = gloss,
             needsAttention = false,
             reveal = null,
+            expandedText = briefing?.let { "$gloss\n\n${it.expandedBlock()}" },
         )
     }
 
@@ -160,6 +173,7 @@ object DueNotifier {
         reveal: String? = null,
         expandedText: String? = null,
         sticky: Boolean = !needsAttention,
+        deleteAction: String? = if (needsAttention) null else NotificationRefreshReceiver.ACTION_DISMISSED,
     ) {
         // Inline rather than extracted: lint cannot follow a permission check through a helper, and
         // a suppression here would go on lying the day the check is removed.
@@ -180,9 +194,9 @@ object DueNotifier {
             .setContentIntent(contentIntent(context, openSettings = needsAttention))
             .setOngoing(sticky)
             // Android 14+ allows swiping ongoing notifications away, so persistence is enforced by
-            // re-posting from this delete intent rather than by a flag. Only for the due-count
-            // notification — errors and the zero-due ambient line stay dismissable.
-            .setDeleteIntent(if (sticky) dismissIntent(context) else null)
+            // re-posting from the ACTION_DISMISSED delete intent rather than by a flag. The
+            // ambient line's delete intent only records the dismissal; errors carry none.
+            .setDeleteIntent(deleteAction?.let { dismissIntent(context, it) })
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -236,12 +250,14 @@ object DueNotifier {
         )
     }
 
-    private fun dismissIntent(context: Context): PendingIntent {
+    private fun dismissIntent(context: Context, action: String): PendingIntent {
         val intent = Intent(context, NotificationRefreshReceiver::class.java)
-            .setAction(NotificationRefreshReceiver.ACTION_DISMISSED)
+            .setAction(action)
         return PendingIntent.getBroadcast(
             context,
-            1,
+            // Distinct request code per action — the due-count and ambient delete intents must
+            // not overwrite each other through FLAG_UPDATE_CURRENT.
+            action.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

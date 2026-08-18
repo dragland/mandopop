@@ -225,9 +225,14 @@ data class FrontierWord(
 interface FrontierDao {
     /**
      * Headwords whose lesson is entirely suspended. Sentences are excluded — a frontier *word* can
-     * be introduced with a gloss; a whole unstudied sentence cannot. The sound-only exclusion
-     * mirrors the shared predicate; content rows for those cards are deleted anyway, so the
-     * subquery is belt and braces rather than a second opinion.
+     * be introduced with a gloss; a whole unstudied sentence cannot. The sound-only exclusion is
+     * carried here per the shared-predicate rule, not merely inherited from
+     * [CardContentDao.deleteSoundOnlyCards]: sound-only cards for un-reached sounds are exactly
+     * the fully-suspended cards this query selects, and a legacy mnemonic-scraped row surviving
+     * until the next sync would otherwise be served as a "frontier word".
+     *
+     * Not filtered against `known_words` here: the same hanzi can sit on a live card and a
+     * suspended one, and "frontier" must mean *un-learned* — callers subtract the known set.
      */
     @Query(
         """
@@ -235,6 +240,7 @@ interface FrontierDao {
         WHERE c.hanzi IS NOT NULL AND c.is_sentence = 0
           AND EXISTS (SELECT 1 FROM schedules s WHERE s.card_id = c.card_id)
           AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.card_id = c.card_id AND s.suspended = 0)
+          AND c.card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
         """,
     )
     suspend fun frontierWords(): List<FrontierWord>
@@ -336,7 +342,9 @@ abstract class MandopopDatabase : RoomDatabase() {
                     // Not `(1, 2)`. Listing a version that a registered migration *starts* from
                     // makes Room reject the builder outright — `IllegalArgumentException` at first
                     // database access, which here means the app dies on launch.
-                    .fallbackToDestructiveMigrationFrom(1)
+                    // dropAllTables = false is the pre-2.7 semantics spelled out: mandopop.db has
+                    // only Room tables, so nothing changes beyond dodging the deprecated overload.
+                    .fallbackToDestructiveMigrationFrom(false, 1)
                     .build()
                     .also { instance = it }
             }

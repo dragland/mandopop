@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.mandopop.briefing.BriefingEngine
 import com.mandopop.notification.DueNotifier
 import com.mandopop.traverse.TraverseSync
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,14 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // Swiping the zero-due ambient line means "done for today" — record it and stop.
+                // No repost (that would resurrect what was just dismissed) and no forced sync
+                // (there is nothing due to recount). A *newly generated* briefing shows again.
+                if (action == ACTION_AMBIENT_DISMISSED) {
+                    BriefingEngine.ambientDismissed()
+                    return@launch
+                }
+
                 val sync = TraverseSync(appContext)
                 if (!sync.isSignedIn()) {
                     DueNotifier.cancel(appContext)
@@ -86,6 +95,7 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_DISMISSED = "com.mandopop.action.NOTIFICATION_DISMISSED"
+        const val ACTION_AMBIENT_DISMISSED = "com.mandopop.action.AMBIENT_DISMISSED"
         const val ACTION_REVEAL = "com.mandopop.action.REVEAL"
         const val EXTRA_HANZI = "hanzi"
 
@@ -93,6 +103,7 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
         private val HANDLED = setOf(
             Intent.ACTION_MY_PACKAGE_REPLACED,
             ACTION_DISMISSED,
+            ACTION_AMBIENT_DISMISSED,
             ACTION_REVEAL,
         )
     }

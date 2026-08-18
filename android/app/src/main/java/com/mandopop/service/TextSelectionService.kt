@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -60,7 +61,7 @@ class TextSelectionService : AccessibilityService() {
             return
         }
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-            maybeCaptureScreen(event.packageName?.toString())
+            maybeCaptureScreen(event)
             return
         }
         if (event.eventType != AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) return
@@ -163,15 +164,27 @@ class TextSelectionService : AccessibilityService() {
         captureJob?.cancel()
         captureJob = serviceScope.launch {
             delay(CAPTURE_SETTLE_MS)
-            ScreenTextMonitor.capture(rootInActiveWindow, packageName, System.currentTimeMillis())
+            // Root fetched on the service thread — one binder call, before the window goes
+            // stale; the multi-node walk hops off-main (node getters are plain IPC, safe there).
+            val root = rootInActiveWindow ?: return@launch
+            withContext(Dispatchers.Default) {
+                ScreenTextMonitor.capture(root, packageName, System.currentTimeMillis())
+            }
         }
     }
 
-    private fun maybeCaptureScreen(packageName: String?) {
-        if (!isCapturablePackage(packageName)) return
+    /** Cheapest gate first: at notificationTimeout=100 most content-change events must cost
+     *  a volatile read and nothing else — not even a packageName string conversion. */
+    private fun maybeCaptureScreen(event: AccessibilityEvent) {
         val now = System.currentTimeMillis()
         if (!ScreenTextMonitor.shouldCapture(now)) return
-        ScreenTextMonitor.capture(rootInActiveWindow, packageName, now)
+        val packageName = event.packageName?.toString()
+        if (!isCapturablePackage(packageName)) return
+        if (!ScreenTextMonitor.tryClaim(now)) return
+        val root = rootInActiveWindow ?: return
+        serviceScope.launch(Dispatchers.Default) {
+            ScreenTextMonitor.capture(root, packageName, System.currentTimeMillis())
+        }
     }
 
     private fun isCapturablePackage(packageName: String?): Boolean =
