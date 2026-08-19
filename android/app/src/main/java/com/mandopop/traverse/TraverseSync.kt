@@ -22,7 +22,15 @@ import java.time.ZoneId
  * card teaches. Since the gloss is hidden until the user asks for it, showing all readings is both
  * more honest and more useful than a ranking heuristic.
  */
-data class DueExample(val hanzi: String, val gloss: String)
+data class DueExample(
+    val hanzi: String,
+    val gloss: String,
+    /**
+     * A studied course sentence containing [hanzi] with every word known (i+1 cloze,
+     * spec.md §4.1), rotated daily. Null falls back to showing the bare word.
+     */
+    val sentence: String? = null,
+)
 
 /**
  * How much of the deck has been read into the vocabulary index.
@@ -66,7 +74,7 @@ class TraverseSync(context: Context) {
     private val auth = TraverseAuth.get(appContext)
     private val firestore = FirestoreRest(auth)
     private val database = MandopopDatabase.get(appContext)
-    private val dictionary = DictionaryRepository(appContext)
+    private val dictionary = DictionaryRepository.shared(appContext)
     private val vocabulary = CardVocabulary(firestore, dictionary, database.cardContentDao())
     private val knownWords = KnownWordIndex(
         dictionary,
@@ -105,9 +113,7 @@ class TraverseSync(context: Context) {
     /** A resolved due word from the local mirror, without touching the network. */
     suspend fun localExample(): DueExample? {
         val zone = ZoneId.systemDefault()
-        return database.cardContentDao()
-            .dueExample(DueCounter.endOfDayMs(LocalDate.now(zone), zone))
-            ?.toDueExample()
+        return resolveExample(DueCounter.endOfDayMs(LocalDate.now(zone), zone))
     }
 
     suspend fun state(): SyncStateEntity = database.syncStateDao().get() ?: SyncStateEntity()
@@ -197,7 +203,7 @@ class TraverseSync(context: Context) {
 
             val dueCount = scheduleDao.countDueBefore(boundary)
             val liveCount = scheduleDao.countLive()
-            val example = database.cardContentDao().dueExample(boundary)?.toDueExample()
+            val example = resolveExample(boundary)
 
             syncStateDao.put(
                 previous.copy(
@@ -229,10 +235,40 @@ class TraverseSync(context: Context) {
         }
     }
 
-    private fun CardContentEntity.toDueExample(): DueExample? {
-        val word = hanzi ?: return null
-        val meaning = english ?: return null
-        return DueExample(word, meaning)
+    /**
+     * The due word shown as an i+1 cloze sentence — preferring, among the most-forgotten due
+     * words, whichever one a studied sentence can actually carry. Only when none of the top
+     * candidates has a qualifying sentence does the surface fall back to a bare word.
+     */
+    private suspend fun resolveExample(boundaryMs: Long): DueExample? {
+        val rows = database.cardContentDao().dueExamples(boundaryMs, CLOZE_CANDIDATES)
+        if (rows.isEmpty()) return null
+        val known = database.frontierDao().knownHanzi().toHashSet()
+        var fallback: DueExample? = null
+        for (row in rows) {
+            val word = row.hanzi ?: continue
+            val meaning = row.english ?: continue
+            if (fallback == null) fallback = DueExample(word, meaning)
+            if (known.isEmpty()) continue
+            clozeFor(word, known)?.let { return DueExample(word, meaning, it) }
+        }
+        return fallback
+    }
+
+    private suspend fun clozeFor(word: String, known: Set<String>): String? {
+        val sentences = database.cardContentDao().sentencesContaining(word)
+        if (sentences.isEmpty()) return null
+        val candidates = mutableSetOf<String>()
+        for (sentence in sentences) candidates += Segmenter.candidates(sentence)
+        val dictWords = dictionary.knownSimplified(candidates)
+        val zone = ZoneId.systemDefault()
+        return ClozePicker.pick(
+            sentences,
+            word,
+            isWord = { it in dictWords || it in known },
+            isKnown = { it in known },
+            seed = ClozePicker.seed(LocalDate.now(zone).toEpochDay(), word),
+        )
     }
 
     /** Re-resolves a word's readings for the notification's reveal action. */
@@ -268,5 +304,8 @@ class TraverseSync(context: Context) {
          * a day of trickling. Being cut short is harmless: the invariant resumes next run.
          */
         const val CONTENT_LIMIT = 1_500
+
+        /** How many most-forgotten due words to try before settling for a sentence-less one. */
+        const val CLOZE_CANDIDATES = 10
     }
 }

@@ -186,17 +186,41 @@ interface CardContentDao {
      * sentences were captured this query could pick a card whose stored "word" was really one
      * fragment scavenged out of a sentence — excluding them is the honest version of that.
      */
+    /**
+     * The most-forgotten due words; callers walk them for one an i+1 sentence can carry.
+     * Grouped per card (a multi-prompt card must not eat two slots) and tie-broken by card id
+     * — resolution runs more than once per pull, and a tie swapping between runs would
+     * silently strand the display.
+     */
     @Query(
         """
         SELECT c.* FROM card_content c
         JOIN schedules s ON s.card_id = c.card_id
         WHERE c.english IS NOT NULL AND c.is_sentence = 0
           AND s.suspended = 0 AND s.due_time_ms < :boundaryMs
-        ORDER BY s.lapses DESC, s.due_time_ms ASC
-        LIMIT 1
+        GROUP BY c.card_id
+        ORDER BY MAX(s.lapses) DESC, MIN(s.due_time_ms) ASC, c.card_id
+        LIMIT :limit
         """,
     )
-    suspend fun dueExample(boundaryMs: Long): CardContentEntity?
+    suspend fun dueExamples(boundaryMs: Long, limit: Int): List<CardContentEntity>
+
+    /**
+     * Studied sentences containing a word, for the i+1 cloze. Unsuspended only (an unreached
+     * lesson is not fair context). LIKE on purpose: avoids the `==target==` parser change and
+     * its ~940-billed-read `CardParser.VERSION` bump; the i+1 filter does quality control.
+     */
+    @Query(
+        """
+        SELECT DISTINCT c.hanzi FROM card_content c
+        JOIN schedules s ON s.card_id = c.card_id
+        WHERE c.is_sentence = 1 AND c.hanzi IS NOT NULL
+          AND s.suspended = 0
+          AND c.hanzi LIKE '%' || :word || '%'
+        LIMIT 30
+        """,
+    )
+    suspend fun sentencesContaining(word: String): List<String>
 }
 
 @Dao
@@ -206,6 +230,44 @@ interface SyncStateDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(state: SyncStateEntity)
+}
+
+/**
+ * A word in the deck the course has not taught yet — every schedule row for its card is suspended.
+ *
+ * "Frontier" per spec.md §3: the course *will* teach it, so an exposure now has scheduled
+ * re-encounters ahead of it. Course ordering (`Tags`/`graphInfo`) is not mirrored yet, so callers
+ * rank frontier words by relevance to the moment, not by lesson order.
+ */
+data class FrontierWord(
+    @ColumnInfo(name = "hanzi") val hanzi: String,
+    @ColumnInfo(name = "pinyin") val pinyin: String?,
+    @ColumnInfo(name = "english") val english: String?,
+)
+
+@Dao
+interface FrontierDao {
+    /**
+     * Headwords whose lesson is entirely suspended. Sentences excluded; SOUND_ONLY carried
+     * per the shared-predicate rule (fully-suspended sound cards are exactly what this query
+     * would otherwise select). Not filtered against `known_words` — callers subtract, since
+     * one hanzi can sit on both a live and a suspended card.
+     */
+    @Query(
+        """
+        SELECT c.hanzi AS hanzi, c.pinyin AS pinyin, c.english AS english FROM card_content c
+        WHERE c.hanzi IS NOT NULL AND c.is_sentence = 0
+          AND EXISTS (SELECT 1 FROM schedules s WHERE s.card_id = c.card_id)
+          AND NOT EXISTS (SELECT 1 FROM schedules s WHERE s.card_id = c.card_id AND s.suspended = 0)
+          AND c.card_id NOT IN (SELECT card_id FROM schedules WHERE $SOUND_ONLY)
+        """,
+    )
+    suspend fun frontierWords(): List<FrontierWord>
+
+    /** The whole known-word vocabulary, for the briefing verifier's membership set. */
+    @Query("SELECT hanzi FROM known_words")
+    suspend fun knownHanzi(): List<String>
+
 }
 
 @Dao
@@ -245,6 +307,7 @@ abstract class MandopopDatabase : RoomDatabase() {
     abstract fun cardContentDao(): CardContentDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun knownWordDao(): KnownWordDao
+    abstract fun frontierDao(): FrontierDao
 
     companion object {
         @Volatile
@@ -263,7 +326,8 @@ abstract class MandopopDatabase : RoomDatabase() {
          * so pasting Room's own statement is the only way to be sure. `ALTER TABLE ADD COLUMN` is
          * not idempotent, unlike its neighbour — re-registering this migration would throw.
          */
-        private val MIGRATION_2_3 = object : Migration(2, 3) {
+        // Internal: MigrationTestHelper (Room 2.7+) must be handed the real object.
+        internal val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE `card_content` " +
@@ -299,7 +363,9 @@ abstract class MandopopDatabase : RoomDatabase() {
                     // Not `(1, 2)`. Listing a version that a registered migration *starts* from
                     // makes Room reject the builder outright — `IllegalArgumentException` at first
                     // database access, which here means the app dies on launch.
-                    .fallbackToDestructiveMigrationFrom(1)
+                    // dropAllTables = false is the pre-2.7 semantics spelled out: mandopop.db has
+                    // only Room tables, so nothing changes beyond dodging the deprecated overload.
+                    .fallbackToDestructiveMigrationFrom(false, 1)
                     .build()
                     .also { instance = it }
             }

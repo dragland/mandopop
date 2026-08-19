@@ -80,6 +80,48 @@ class DictionaryRepository(private val context: Context) {
     }
 
     /**
+     * SUBTLEX mass covered by [words] and the whole corpus's mass — the stats line's
+     * "% of everyday running Chinese you can read". Per distinct written form (MAX over
+     * homograph entries: frequency is form-keyed, so summing per entry would double-count
+     * 东西's two readings). The denominator comes from build-time metadata and includes words
+     * CC-CEDICT doesn't know, so the percentage stays honest.
+     */
+    suspend fun frequencyCoverage(words: Collection<String>): Pair<Double, Double> {
+        return withContext(Dispatchers.IO) {
+            try {
+                var mass = 0.0
+                for (chunk in words.distinct().chunked(MEMBERSHIP_CHUNK)) {
+                    val placeholders = chunk.joinToString(",") { "?" }
+                    val sql = """
+                        SELECT SUM(f) FROM (
+                            SELECT MAX(frequency) AS f FROM entries
+                            WHERE simplified IN ($placeholders) AND frequency IS NOT NULL
+                            GROUP BY simplified
+                        )
+                    """.trimIndent()
+                    getDatabase().rawQuery(sql, chunk.toTypedArray()).use { cursor ->
+                        if (cursor.moveToFirst() && !cursor.isNull(0)) mass += cursor.getDouble(0)
+                    }
+                }
+                mass to totalFrequencyMass()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Frequency coverage query failed", error)
+                0.0 to 0.0
+            }
+        }
+    }
+
+    private fun totalFrequencyMass(): Double =
+        getDatabase().rawQuery(
+            "SELECT value FROM metadata WHERE key = 'frequency_total'",
+            null,
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0).toDoubleOrNull() ?: 0.0 else 0.0
+        }
+
+    /**
      * Which of [words] CC-CEDICT actually contains.
      *
      * Segmenting the deck's sentences tests thousands of candidate substrings, and a point query
@@ -297,8 +339,24 @@ class DictionaryRepository(private val context: Context) {
         private const val PREFS_NAME = "mandopop_dictionary"
         private const val KEY_COPIED_HASH = "copied_hash"
         // Must match SCHEMA_VERSION in android/scripts/build_dictionary.py.
-        private const val EXPECTED_USER_VERSION = 2
+        private const val EXPECTED_USER_VERSION = 3
         /** SQLite's default parameter ceiling is 999; this keeps well clear of it. */
         private const val MEMBERSHIP_CHUNK = 400
+
+        @Volatile
+        private var sharedInstance: DictionaryRepository? = null
+
+        /**
+         * The process-lifetime handle. Per-caller instances were an audited leak: every
+         * `TraverseSync` construction (each worker run, each notification broadcast, each
+         * shade-pull) opened its own SQLite connection and nothing ever closed it — hundreds of
+         * live handles a day. One connection per process, never closed; the constructor stays
+         * public only for JVM tests.
+         */
+        fun shared(context: Context): DictionaryRepository =
+            sharedInstance ?: synchronized(this) {
+                sharedInstance
+                    ?: DictionaryRepository(context.applicationContext).also { sharedInstance = it }
+            }
     }
 }

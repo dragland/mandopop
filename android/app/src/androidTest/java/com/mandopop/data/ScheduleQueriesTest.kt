@@ -76,6 +76,53 @@ class ScheduleQueriesTest {
     }
 
     @Test
+    fun clozePoolIsStudiedSentencesContainingTheWord() = runTest {
+        schedules.replaceAll(
+            listOf(
+                schedule("s1"),
+                schedule("s2", suspended = true),
+                schedule("w1"),
+            ),
+        )
+        content.putAll(
+            listOf(
+                CardContentEntity("s1", "我们今天有会议。", null, "we meet", 0L, 1, isSentence = true),
+                CardContentEntity("s2", "会议很重要。", null, "important", 0L, 1, isSentence = true),
+                CardContentEntity("w1", "会议", "huìyì", "meeting", 0L, 1),
+            ),
+        )
+
+        // Unsuspended sentences only — an unreached lesson is not fair context — and the word
+        // card itself is not a sentence.
+        assertEquals(listOf("我们今天有会议。"), content.sentencesContaining("会议"))
+    }
+
+    @Test
+    fun frontierIsFullySuspendedNonSoundWordCards() = runTest {
+        schedules.replaceAll(
+            listOf(
+                schedule("f1", suspended = true),
+                schedule("half-0", cardId = "half", suspended = true),
+                schedule("half-1", cardId = "half", suspended = false),
+                schedule("actor", suspended = true, template = "/MB/ACTOR REVIEW"),
+                schedule("sent", suspended = true),
+            ),
+        )
+        content.putAll(
+            listOf(
+                CardContentEntity("f1", "医生", "yīshēng", "doctor", 0L, 1),
+                CardContentEntity("half", "水", "shuǐ", "water", 0L, 1),
+                CardContentEntity("actor", "八", "bā", "eight", 0L, 1),
+                CardContentEntity("sent", "我是医生。", null, "sentence", 0L, 1, isSentence = true),
+            ),
+        )
+
+        // Only the fully-suspended word card qualifies: one live prompt disqualifies (half),
+        // sound-only cards are excluded per the shared predicate, sentences are not words.
+        assertEquals(listOf("医生"), db.frontierDao().frontierWords().map { it.hanzi })
+    }
+
+    @Test
     fun replaceAllSwapsTheMirrorRatherThanAccumulating() = runTest {
         schedules.replaceAll(listOf(schedule("old")))
         schedules.replaceAll(listOf(schedule("new-1"), schedule("new-2")))
@@ -223,7 +270,7 @@ class ScheduleQueriesTest {
 
         assertEquals(1, content.deleteSoundOnlyCards())
         // The word card is untouched by the cleanup, which is the half that could silently overreach.
-        assertEquals("水", content.dueExample(boundary)?.hanzi)
+        assertEquals("水", content.dueExamples(boundary, 1).firstOrNull()?.hanzi)
     }
 
     @Test
@@ -243,7 +290,7 @@ class ScheduleQueriesTest {
             ),
         )
 
-        assertEquals("东西", content.dueExample(boundary)?.hanzi)
+        assertEquals("东西", content.dueExamples(boundary, 1).firstOrNull()?.hanzi)
     }
 
     @Test
@@ -263,7 +310,7 @@ class ScheduleQueriesTest {
             ),
         )
 
-        assertEquals("水", content.dueExample(boundary)?.hanzi)
+        assertEquals("水", content.dueExamples(boundary, 1).firstOrNull()?.hanzi)
     }
 
     @Test
@@ -272,6 +319,6 @@ class ScheduleQueriesTest {
         // Characters recognised but absent from CC-CEDICT: nothing worth showing.
         content.putAll(listOf(CardContentEntity("c1", "乚", null, null, 0L)))
 
-        assertNull(content.dueExample(boundary))
+        assertNull(content.dueExamples(boundary, 1).firstOrNull())
     }
 }

@@ -82,8 +82,9 @@ DataStore; the password itself is never persisted. Sign Out clears the token, th
   due notification away, and after an app update. A routine sync is one Firestore read — the full deck is pulled only when
   the day rolls over, the day's review count changes, or the mirror is over 6h stale.
 - The notification shows the bare hanzi of a due card, with a `Reveal` action for the
-  reading and meaning. It is silent, cannot be swiped away while cards are due, and
-  disappears on its own once the queue is empty.
+  reading and meaning. It is silent and cannot be swiped away while cards are due. Once
+  the queue is empty it disappears — unless a daily briefing is available, in which case
+  a dismissable 复习完了 ✓ line with the briefing sentence takes its place.
 - Local state lives in `mandopop.db` and is a cache of remote state, so a schema change
   with no written migration drops it and the next sync refills it. `card_content` is the
   exception and now has a real migration: refilling it costs ~940 reads on Traverse's
@@ -97,6 +98,26 @@ The Firebase web API key in `TraverseAuth` is a project identifier, not a creden
 serves it in the clear to every web client and it authorises nothing by itself. No secret is
 needed to build or run this repo.
 
+## Daily briefing
+
+One short Chinese sentence about the day, shown in the due notification's expanded view
+and regenerated when the notification shade is pulled down.
+
+- Inputs: today's remaining calendar events (`READ_CALENDAR`), the notifications
+  currently in the shade (notification access, granted in system settings via the
+  Daily briefing panel), and a rolling snapshot of the foreground app's text from the
+  accessibility tree. All three are read at generation time and stored nowhere.
+- Composed on-device with slot-filled templates as fallback; every candidate sentence is
+  segmented and checked against the known-words index before it is shown. Nothing read
+  from the calendar, the shade, or the screen ever leaves the phone. The model runs
+  through llama.cpp in-process (current daily driver: Qwen3.5-2B, 1.34GB, ~3s a
+  sentence), loading whatever `.gguf` sits in the app's `models/` dir. Models are pushed
+  once at dev time — the Daily briefing panel prints the exact `adb push` target when
+  none is installed.
+- Daily briefing is a toggle in the Features section; setup rows appear under it only
+  while something it needs is missing. Turning it off frees the resident model and stops
+  all shade-pull and screen-capture work. Failures log to logcat (`MandopopBriefing`).
+
 Lookups run whenever the accessibility service is on. There is deliberately no
 in-app switch for them — the service is the one control, and a second one would
 only let the app claim to be running while doing nothing.
@@ -106,6 +127,8 @@ Settings defaults:
 - `Pronunciation`: on. Shows the pronunciation button in result cards.
 - `Playful misses`: on. Unknown selections show a random Mandarin miss card;
   turning this off makes unknown selections dismiss silently.
+- `Daily briefing`: on. The shade sentence, screen score and stats line; off frees the
+  on-device model entirely.
 - `Hanzi size`: 24sp by default.
 
 ## Manual Smoke Test
@@ -127,3 +150,9 @@ After each install on a test device:
    confirm the overlay follows the saved setting.
 7. Tap pronunciation repeatedly and confirm speech starts, restarts, and stops
    cleanly when the service is disabled.
+8. Grant Calendar, Notification access and Usage access in the Daily briefing
+   panel and confirm it collapses to a single Ready line. Pull down the shade
+   twice over a minute and confirm a Chinese sentence, the 屏幕 score and the
+   日常中文 stats line appear in the expanded notification; tap Speak and confirm
+   the sentence is spoken. Clear all due cards and confirm the dismissable
+   复习完了 ✓ line replaces the due notification.

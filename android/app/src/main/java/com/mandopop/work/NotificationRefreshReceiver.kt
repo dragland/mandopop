@@ -4,8 +4,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.mandopop.briefing.BriefingEngine
 import com.mandopop.notification.DueNotifier
+import com.mandopop.notification.StatsTail
 import com.mandopop.traverse.TraverseSync
+import com.mandopop.tts.ChineseTtsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -29,12 +32,35 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         if (action !in HANDLED) return
+
+        // Speak stands alone: no sync, no repost — just say the Chinese and finish. The TTS
+        // callback fires on the main handler after speech ends, which is what releases the
+        // broadcast's async window.
+        if (action == ACTION_SPEAK) {
+            val text = intent.getStringExtra(EXTRA_SPEAK_TEXT)?.takeIf { it.isNotBlank() } ?: return
+            val pending = goAsync()
+            val tts = ChineseTtsManager(context.applicationContext)
+            tts.speak(text) {
+                tts.shutdown()
+                pending.finish()
+            }
+            return
+        }
+
         val hanzi = intent.getStringExtra(EXTRA_HANZI)
 
         val appContext = context.applicationContext
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // Swiping the zero-due ambient line means "done for today" — record it and stop.
+                // No repost (that would resurrect what was just dismissed) and no forced sync
+                // (there is nothing due to recount). A *newly generated* briefing shows again.
+                if (action == ACTION_AMBIENT_DISMISSED) {
+                    BriefingEngine.ambientDismissed()
+                    return@launch
+                }
+
                 val sync = TraverseSync(appContext)
                 if (!sync.isSignedIn()) {
                     DueNotifier.cancel(appContext)
@@ -63,7 +89,9 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
                     }
                 }
                 // Re-post from local counts first, so the notification never visibly disappears
-                // while a network round trip is in flight.
+                // while a network round trip is in flight. Stats refresh beforehand — a repost
+                // with a stale-or-empty tail reads as the feature being broken.
+                runCatching { StatsTail.refresh(appContext) }
                 val due = sync.localDueCount()
                 Log.i(TAG, "refresh after $action: due=$due")
                 DueNotifier.repost(appContext, due, sync.localLiveCount(), sync.localExample())
@@ -86,14 +114,19 @@ class NotificationRefreshReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_DISMISSED = "com.mandopop.action.NOTIFICATION_DISMISSED"
+        const val ACTION_AMBIENT_DISMISSED = "com.mandopop.action.AMBIENT_DISMISSED"
         const val ACTION_REVEAL = "com.mandopop.action.REVEAL"
+        const val ACTION_SPEAK = "com.mandopop.action.SPEAK"
         const val EXTRA_HANZI = "hanzi"
+        const val EXTRA_SPEAK_TEXT = "speak_text"
 
         private const val TAG = "MandopopNotif"
         private val HANDLED = setOf(
             Intent.ACTION_MY_PACKAGE_REPLACED,
             ACTION_DISMISSED,
+            ACTION_AMBIENT_DISMISSED,
             ACTION_REVEAL,
+            ACTION_SPEAK,
         )
     }
 }

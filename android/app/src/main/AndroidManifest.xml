@@ -1,10 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Learning-state sync only. No user content leaves the device (see AGENTS.md). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      Daily-briefing inputs. Both are queried at generation time and stored nowhere — the OS is
+      the database. Calendar rows and notification text never leave the device; the briefing is
+      composed and verified entirely on-device.
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
+    <!--
+      "Minutes studied today" in the notification's stats line: foreground time in study apps,
+      read from UsageStats at glance time. Special-access grant (Settings > Usage access), so
+      lint's system-app warning is expected and suppressed.
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <!--
       Package visibility filtering (Android 11+) hides other apps by default, which would make
@@ -39,6 +56,21 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!--
+          Read-only mirror of the shade for the daily briefing. It never posts, cancels, or
+          rewrites anything — getActiveNotifications() is queried at generation time so the
+          briefing reflects what is actually still pending, with zero buffering.
+        -->
+        <service
+            android:name=".briefing.NotificationCatcher"
+            android:label="@string/app_name"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".service.TextSelectionService"

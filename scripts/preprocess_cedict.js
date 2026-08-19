@@ -83,7 +83,13 @@ export function buildDictionary(content, frequencies = new Map()) {
     if (id === undefined) {
       id = entries.length;
       idBySignature.set(signature, id);
-      entries.push({ s: simplified, p: pinyin, d: definitions });
+      const entry = { s: simplified, p: pinyin, d: definitions };
+      // Additive field: SUBTLEX-CH mass for the written form, powering the Android stats
+      // line's text-coverage percentage. Consumers of {s,p,d} are unaffected — the shape's
+      // required fields are unchanged, which is why FORMAT_VERSION stays put.
+      const mass = frequencies.get(simplified);
+      if (mass !== undefined) entry.f = mass;
+      entries.push(entry);
     }
     lineCount++;
 
@@ -155,8 +161,15 @@ function main() {
     frequencies
   );
 
+  // Denominator for the coverage stat: the whole corpus's mass, including words CC-CEDICT
+  // doesn't know — a denominator limited to dictionary entries would quietly inflate the
+  // percentage.
+  let fTotal = 0;
+  for (const value of frequencies.values()) fTotal += value;
+
   const json = JSON.stringify({
     v: FORMAT_VERSION,
+    fTotal,
     entries,
     index: Object.fromEntries(index)
   });

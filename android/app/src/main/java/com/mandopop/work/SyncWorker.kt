@@ -12,6 +12,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.mandopop.notification.DueNotifier
+import com.mandopop.notification.StatsTail
 import com.mandopop.traverse.SyncOutcome
 import com.mandopop.traverse.TraverseSync
 import java.util.concurrent.TimeUnit
@@ -21,6 +22,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun doWork(): Result {
         val sync = TraverseSync(applicationContext)
         val outcome = sync.sync(force = inputData.getBoolean(KEY_FORCE, false))
+        // Before the post, so the expanded view's stats line is current with the sync it rides.
+        runCatching { StatsTail.refresh(applicationContext) }
         DueNotifier.show(applicationContext, outcome)
 
         return when {

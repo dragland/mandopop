@@ -3,6 +3,7 @@ package com.mandopop
 import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -45,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +61,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import com.mandopop.briefing.BriefingEngine
+import com.mandopop.briefing.NotificationCatcher
 import com.mandopop.notification.DueNotifier
+import com.mandopop.notification.StatsTail
+import com.mandopop.notification.UsageMinutes
 import com.mandopop.service.TextSelectionService
 import com.mandopop.tts.ChineseTtsManager
 import com.mandopop.settings.SettingsStore
@@ -74,6 +82,7 @@ import com.mandopop.ui.AttributionFooter
 import com.mandopop.ui.LookupPreview
 import com.mandopop.ui.SectionLabel
 import com.mandopop.ui.ServiceStatusCard
+import com.mandopop.ui.BriefingToggle
 import com.mandopop.ui.SettingsPanel
 import com.mandopop.ui.ToggleRow
 import com.mandopop.ui.TraversePanel
@@ -98,6 +107,31 @@ class MainActivity : ComponentActivity() {
      * coming back — there is no callback for it.
      */
     private var serviceEnabled by mutableStateOf(false)
+
+    // Same resume-time pattern as the accessibility grant: both are given in system settings
+    // with no callback, so they are simply re-read whenever the user comes back.
+    private var notificationListenerEnabled by mutableStateOf(false)
+    private var notificationListenerConnected by mutableStateOf(false)
+    private var calendarGranted by mutableStateOf(false)
+    private var usageAccessGranted by mutableStateOf(false)
+
+    private val calendarPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            calendarGranted = granted
+            // Permanently denied ("don't ask again") makes launch() return false instantly with
+            // no dialog — a dead end with zero feedback. Send the user where the switch actually
+            // is, the same move the accessibility card makes.
+            if (!granted &&
+                !shouldShowRequestPermissionRationale(Manifest.permission.READ_CALENDAR)
+            ) {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", packageName, null),
+                    ),
+                )
+            }
+        }
 
     // Sign-in posts the first notification before the permission dialog is answered, so it gets
     // dropped. Re-post once the user grants it, otherwise nothing appears until the worker runs.
@@ -133,6 +167,15 @@ class MainActivity : ComponentActivity() {
                 },
                 requestNotificationPermission = ::requestNotificationPermission,
                 playPreview = { tts.speak("你好") },
+                notificationListenerEnabled = notificationListenerEnabled,
+                notificationListenerConnected = notificationListenerConnected,
+                calendarGranted = calendarGranted,
+                usageAccessGranted = usageAccessGranted,
+                openNotificationAccessSettings = ::openNotificationAccessSettings,
+                requestCalendarPermission = {
+                    calendarPermission.launch(Manifest.permission.READ_CALENDAR)
+                },
+                openUsageAccessSettings = ::openUsageAccessSettings,
             )
         }
     }
@@ -140,6 +183,16 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         serviceEnabled = isLookupServiceEnabled()
+        notificationListenerEnabled = NotificationCatcher.isEnabled(this)
+        notificationListenerConnected = NotificationCatcher.isConnected()
+        // Granted-but-unbound recovers with a rebind request far more often than with the
+        // user re-toggling access in system settings.
+        NotificationCatcher.requestRebindIfNeeded(this)
+        calendarGranted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_CALENDAR,
+        ) == PackageManager.PERMISSION_GRANTED
+        usageAccessGranted = UsageMinutes.isGranted(this)
         // Rebuild the notification whenever the app is opened. Cheap (local counts only) and it
         // means a stale or swiped-away notification is never more than an app launch from correct,
         // instead of waiting up to 15 minutes for the next periodic sync.
@@ -147,6 +200,7 @@ class MainActivity : ComponentActivity() {
             runCatching {
                 withContext(Dispatchers.IO) {
                     if (!traverseSync.isSignedIn()) return@withContext null
+                    StatsTail.refresh(applicationContext)
                     Triple(
                         traverseSync.localDueCount(),
                         traverseSync.localLiveCount(),
@@ -177,6 +231,44 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
+
+    /**
+     * Special-access grants have no in-app dialog — a settings trip is structural. What CAN be
+     * shortened is the walk inside settings: API 30+ deep-links straight to *this app's*
+     * notification-access toggle instead of the all-apps list. Fallback to the list where the
+     * detail intent isn't handled.
+     */
+    private fun openNotificationAccessSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                .putExtra(
+                    Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                    ComponentName(this, NotificationCatcher::class.java).flattenToString(),
+                )
+            if (detail.resolveActivity(packageManager) != null) {
+                startActivity(detail)
+                return
+            }
+        }
+        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    }
+
+    /** Same idea: newer Settings builds honor a package URI and land on our row directly. */
+    private fun openUsageAccessSettings() {
+        val direct = Intent(
+            Settings.ACTION_USAGE_ACCESS_SETTINGS,
+            Uri.fromParts("package", packageName, null),
+        )
+        if (direct.resolveActivity(packageManager) != null) {
+            try {
+                startActivity(direct)
+                return
+            } catch (ignored: Exception) {
+                // Some builds resolve but reject the data URI; fall through to the list.
+            }
+        }
+        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+    }
 }
 
 @Composable
@@ -187,11 +279,29 @@ private fun MandopopSettingsApp(
     openAccessibilitySettings: () -> Unit,
     requestNotificationPermission: () -> Unit,
     playPreview: () -> Unit,
+    notificationListenerEnabled: Boolean,
+    notificationListenerConnected: Boolean,
+    calendarGranted: Boolean,
+    usageAccessGranted: Boolean,
+    openNotificationAccessSettings: () -> Unit,
+    requestCalendarPermission: () -> Unit,
+    openUsageAccessSettings: () -> Unit,
 ) {
     val scrollState = rememberScrollState()
     val initial = remember { settingsStore.snapshot() }
     var showAudio by remember { mutableStateOf(initial.showAudio) }
     var playfulNoResult by remember { mutableStateOf(initial.playfulNoResult) }
+    var briefingEnabled by remember { mutableStateOf(initial.briefingEnabled) }
+    val scope = rememberCoroutineScope()
+    val onBriefingEnabledChange: (Boolean) -> Unit = { enabled ->
+        briefingEnabled = enabled
+        settingsStore.setBriefingEnabled(enabled)
+        if (!enabled) {
+            // A real power switch: free the resident model and every cache now, not at some
+            // future shade pull that will never run.
+            scope.launch(Dispatchers.Default) { BriefingEngine.onDisabled() }
+        }
+    }
     var fontSize by remember { mutableFloatStateOf(initial.chineseFontSizeSp.toFloat()) }
 
     MaterialTheme(
@@ -218,14 +328,14 @@ private fun MandopopSettingsApp(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                Header()
+                Header(serviceEnabled = serviceEnabled)
 
                 ServiceStatusCard(
                     serviceEnabled = serviceEnabled,
                     onOpenSettings = openAccessibilitySettings,
                 )
 
-                SectionLabel("Lookups")
+                SectionLabel("Features")
                 SettingsPanel {
                     ToggleRow(
                         icon = R.drawable.ic_voice,
@@ -247,6 +357,18 @@ private fun MandopopSettingsApp(
                             playfulNoResult = it
                             settingsStore.setPlayfulNoResult(it)
                         },
+                    )
+
+                    BriefingToggle(
+                        enabled = briefingEnabled,
+                        onEnabledChange = onBriefingEnabledChange,
+                        listenerEnabled = notificationListenerEnabled,
+                        listenerConnected = notificationListenerConnected,
+                        calendarGranted = calendarGranted,
+                        usageAccessGranted = usageAccessGranted,
+                        onOpenNotificationAccess = openNotificationAccessSettings,
+                        onRequestCalendar = requestCalendarPermission,
+                        onOpenUsageAccess = openUsageAccessSettings,
                     )
                 }
 
@@ -288,6 +410,7 @@ private fun MandopopSettingsApp(
                     requestNotificationPermission = requestNotificationPermission,
                 )
 
+
                 AttributionFooter()
             }
         }
@@ -302,21 +425,38 @@ private fun MandopopSettingsApp(
  * silently stale card count is impossible to debug on a real device.
  */
 @Composable
-private fun Header() {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = "Mandopop",
-            color = PaleGreen,
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = "学",
-            color = NeonGreen,
-            fontSize = 40.sp,
-            fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Serif,
-        )
+private fun Header(serviceEnabled: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Mandopop",
+                color = PaleGreen,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = "学",
+                color = NeonGreen,
+                fontSize = 40.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.Serif,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        // Working-as-intended is a non-event: a quiet dot beside the logo, not a boxed row
+        // spending a full width on good news. The un-granted state gets the loud card below.
+        if (serviceEnabled) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = "Lookups ready"
+                },
+            ) {
+                Text("●", color = NeonGreen, fontSize = 11.sp)
+                Spacer(Modifier.width(8.dp))
+                Text("Ready", color = MutedText, fontSize = 13.sp)
+            }
+        }
     }
 }
 

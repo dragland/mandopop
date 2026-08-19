@@ -10,13 +10,16 @@ plugins {
 android {
     namespace = "com.mandopop"
     compileSdk = 35
+    // llama.cpp bridge (briefing composer for .gguf models). arm64 only — the one physical
+    // device this app targets — which keeps native build time and APK size in check.
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.mandopop"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Traverse's public Firebase web config. Not a secret — Google serves these to every web
@@ -34,6 +37,30 @@ android {
             "TRAVERSE_PROJECT_ID",
             "\"${findProperty("traverse.projectId") ?: "alley-d0944"}\"",
         )
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                // Android 15+ enforces 16KB-aligned ELF segments on 16KB-page devices (this
+                // Pixel included); NDK r27 still defaults to 4KB. This flag sets
+                // max-page-size for every target in the build, llama.cpp's libs included.
+                arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+                // Always optimize the native build: llama.cpp at -O0 is over an order of
+                // magnitude slower, and a debug APK is still how this app ships to the one
+                // device it runs on. Native debugging isn't a workflow here.
+                arguments += "-DCMAKE_BUILD_TYPE=Release"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildFeatures {
@@ -117,9 +144,9 @@ dependencies {
     implementation("androidx.savedstate:savedstate:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    // room-ktx merged into room-runtime as of 2.7 — no separate artifact needed.
+    implementation("androidx.room:room-runtime:2.7.2")
+    ksp("androidx.room:room-compiler:2.7.2")
 
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
@@ -143,5 +170,5 @@ dependencies {
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     // A migration that disagrees with Room throws at first database open, not at build time, so
     // the only cheap way to find out is to run it against the exported schemas.
-    androidTestImplementation("androidx.room:room-testing:2.6.1")
+    androidTestImplementation("androidx.room:room-testing:2.7.2")
 }

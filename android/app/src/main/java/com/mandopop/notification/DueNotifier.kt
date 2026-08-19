@@ -14,6 +14,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.mandopop.MainActivity
 import com.mandopop.R
+import com.mandopop.briefing.BriefingEngine
+import com.mandopop.traverse.ChineseText
 import com.mandopop.traverse.DueExample
 import com.mandopop.traverse.SyncOutcome
 import com.mandopop.work.NotificationRefreshReceiver
@@ -43,23 +45,50 @@ object DueNotifier {
 
     fun show(context: Context, outcome: SyncOutcome) {
         when (outcome) {
-            // Clearing the queue clears the notification — reaching zero should feel like finishing,
-            // not like earning a "well done" that sits in the shade afterwards.
-            is SyncOutcome.Success -> if (outcome.dueCount == 0) {
-                cancel(context)
-            } else {
-                val cards = if (outcome.dueCount == 1) "card" else "cards"
-                val example = outcome.example
-                post(
-                    context,
-                    title = "${outcome.dueCount} $cards due today",
-                    // Characters only. Printing the reading and meaning alongside would turn a
-                    // retrieval prompt into passive exposure, which is the opposite of what
-                    // spaced repetition is for — the answer lives behind the Reveal action.
-                    text = example?.hanzi ?: "${outcome.liveCount} cards in rotation",
-                    needsAttention = false,
-                    reveal = example?.hanzi,
-                )
+            // Zero due switches to ambient mode rather than cancelling (spec.md §4): the daily
+            // briefing is worth a line whether or not cards are waiting. With no briefing either,
+            // the old rule holds — clearing the queue clears the notification, and reaching zero
+            // feels like finishing rather than earning a "well done" that sits in the shade.
+            is SyncOutcome.Success -> {
+                if (outcome.dueCount == 0) {
+                    // Dismissal is remembered per generation — reposts arrive through many
+                    // doors and none may resurrect a swiped line; a new generation shows.
+                    val briefing = BriefingEngine.ambientBriefing()
+                    if (briefing == null) {
+                        cancel(context)
+                    } else {
+                        post(
+                            context,
+                            title = "复习完了 ✓",
+                            text = briefing.sentence,
+                            needsAttention = false,
+                            reveal = null,
+                            expandedText = expanded(briefing.sentence),
+                            // Dismissable; the delete intent only records, never re-posts.
+                            sticky = false,
+                            deleteAction = NotificationRefreshReceiver.ACTION_AMBIENT_DISMISSED,
+                            speak = briefing.sentence,
+                        )
+                    }
+                } else {
+                    val example = outcome.example
+                    val briefing = BriefingEngine.current
+                    // ONE sentence, hanzi only, never two stacked. Recall lives in the cloze,
+                    // the bare word, and Reveal (which shows the due card either way).
+                    val body = briefing?.sentence
+                        ?: example?.sentence
+                        ?: example?.hanzi
+                        ?: "共 ${outcome.liveCount} 张卡在学"
+                    post(
+                        context,
+                        title = "今天 · ${outcome.dueCount} 张到期",
+                        text = body,
+                        needsAttention = false,
+                        reveal = example?.hanzi,
+                        expandedText = expanded(body),
+                        speak = body.takeIf { ChineseText.hasHan(it) },
+                    )
+                }
             }
             // Anything unhealthy needs the user in *our* settings screen, not in Traverse, and must
             // stay dismissable — an undismissable error would be a permanent nuisance.
@@ -114,18 +143,32 @@ object DueNotifier {
      * to being a prompt rather than a flashcard left face-up.
      */
     fun showAnswer(context: Context, dueCount: Int, hanzi: String, gloss: String) {
-        val cards = if (dueCount == 1) "card" else "cards"
         post(
             context,
-            title = "$hanzi — $dueCount $cards due today",
+            title = "$hanzi — 今天 · $dueCount 张到期",
             text = gloss,
             needsAttention = false,
             reveal = null,
+            expandedText = expanded(gloss),
+            speak = hanzi,
         )
     }
 
     fun cancel(context: Context) {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+    }
+
+    /**
+     * Expanded view: the one primary sentence, then the score/stats tail — never a second
+     * Chinese *sentence*, never a dashboard. Absent pieces simply don't print.
+     */
+    private fun expanded(body: String?): String? {
+        val tail = listOfNotNull(BriefingEngine.screenScoreLine, StatsTail.line)
+        val blocks = listOfNotNull(
+            body,
+            tail.takeIf { it.isNotEmpty() }?.joinToString("\n"),
+        )
+        return blocks.takeIf { it.size > 1 || body == null }?.joinToString("\n\n")
     }
 
     private fun post(
@@ -134,6 +177,10 @@ object DueNotifier {
         text: String,
         needsAttention: Boolean,
         reveal: String? = null,
+        expandedText: String? = null,
+        sticky: Boolean = !needsAttention,
+        deleteAction: String? = if (needsAttention) null else NotificationRefreshReceiver.ACTION_DISMISSED,
+        speak: String? = null,
     ) {
         // Inline rather than extracted: lint cannot follow a permission check through a helper, and
         // a suppression here would go on lying the day the check is removed.
@@ -150,13 +197,13 @@ object DueNotifier {
             .setSmallIcon(R.drawable.ic_notification_due)
             .setContentTitle(title)
             .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText ?: text))
             .setContentIntent(contentIntent(context, openSettings = needsAttention))
-            .setOngoing(!needsAttention)
+            .setOngoing(sticky)
             // Android 14+ allows swiping ongoing notifications away, so persistence is enforced by
-            // re-posting from this delete intent rather than by a flag. Only for the due-count
-            // notification — errors stay dismissable.
-            .setDeleteIntent(if (needsAttention) null else dismissIntent(context))
+            // re-posting from the ACTION_DISMISSED delete intent rather than by a flag. The
+            // ambient line's delete intent only records the dismissal; errors carry none.
+            .setDeleteIntent(deleteAction?.let { dismissIntent(context, it) })
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -169,6 +216,15 @@ object DueNotifier {
                             R.drawable.ic_notification_due,
                             "Reveal",
                             revealIntent(context, reveal),
+                        ).build(),
+                    )
+                }
+                if (speak != null) {
+                    addAction(
+                        NotificationCompat.Action.Builder(
+                            R.drawable.ic_notification_due,
+                            "Speak",
+                            speakIntent(context, speak),
                         ).build(),
                     )
                 }
@@ -210,12 +266,28 @@ object DueNotifier {
         )
     }
 
-    private fun dismissIntent(context: Context): PendingIntent {
+    private fun speakIntent(context: Context, text: String): PendingIntent {
         val intent = Intent(context, NotificationRefreshReceiver::class.java)
-            .setAction(NotificationRefreshReceiver.ACTION_DISMISSED)
+            .setAction(NotificationRefreshReceiver.ACTION_SPEAK)
+            .putExtra(NotificationRefreshReceiver.EXTRA_SPEAK_TEXT, text)
         return PendingIntent.getBroadcast(
             context,
-            1,
+            // Same per-payload trick as revealIntent, offset so a word's Speak and Reveal
+            // request codes can never collide.
+            31 * text.hashCode() + 17,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun dismissIntent(context: Context, action: String): PendingIntent {
+        val intent = Intent(context, NotificationRefreshReceiver::class.java)
+            .setAction(action)
+        return PendingIntent.getBroadcast(
+            context,
+            // Distinct request code per action — the due-count and ambient delete intents must
+            // not overwrite each other through FLAG_UPDATE_CURRENT.
+            action.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

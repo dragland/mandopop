@@ -7,6 +7,7 @@ data class SettingsSnapshot(
     val showAudio: Boolean,
     val chineseFontSizeSp: Int,
     val playfulNoResult: Boolean,
+    val briefingEnabled: Boolean,
 )
 
 class SettingsStore(context: Context) {
@@ -17,6 +18,7 @@ class SettingsStore(context: Context) {
             showAudio = prefs.getBoolean(KEY_SHOW_AUDIO, true),
             chineseFontSizeSp = prefs.getInt(KEY_CHINESE_FONT_SIZE_SP, DEFAULT_FONT_SIZE_SP),
             playfulNoResult = prefs.getBoolean(KEY_PLAYFUL_NO_RESULT, true),
+            briefingEnabled = prefs.getBoolean(KEY_BRIEFING_ENABLED, true),
         )
     }
 
@@ -35,6 +37,10 @@ class SettingsStore(context: Context) {
         prefs.edit().putBoolean(KEY_PLAYFUL_NO_RESULT, enabled).apply()
     }
 
+    fun setBriefingEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BRIEFING_ENABLED, enabled).apply()
+    }
+
     companion object {
         const val MIN_FONT_SIZE_SP = 16
         const val MAX_FONT_SIZE_SP = 36
@@ -44,5 +50,6 @@ class SettingsStore(context: Context) {
         private const val KEY_SHOW_AUDIO = "show_audio"
         private const val KEY_CHINESE_FONT_SIZE_SP = "chinese_font_size_sp"
         private const val KEY_PLAYFUL_NO_RESULT = "playful_no_result"
+        private const val KEY_BRIEFING_ENABLED = "briefing_enabled"
     }
 }
